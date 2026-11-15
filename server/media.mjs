@@ -57,7 +57,16 @@ export async function probe(file) {
     !Number.isFinite(Number(s.start_time)) || Math.abs(Number(s.start_time)) > 0.001)) {
     throw new Error('该视频的轨道起点不是 0 秒，请先转码后导入');
   }
-  return { width, height, fps, duration_us, video_index: video[0].index, audio_index: audio[0].index };
+  const trackDuration = stream => {
+    const value = Math.round(Number(stream.duration) * second);
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
+  };
+  return {
+    width, height, fps, duration_us,
+    video_index: video[0].index, audio_index: audio[0].index,
+    video_duration_us: trackDuration(video[0]),
+    audio_duration_us: trackDuration(audio[0]),
+  };
 }
 
 function timestamp(hours, minutes, seconds, millis) {
@@ -149,7 +158,7 @@ export function validateVideoFrames(segments, frameTimes) {
 
 export async function exportVideo(file, plan, target, metadata) {
   const filters = [
-    videoFilter(plan.kept, metadata.video_index),
+    videoFilter(plan.kept, metadata.video_index, plan.output_duration_us),
     ...audioFilters(plan.kept, metadata.audio_index, plan.output_duration_us),
   ];
   await run(ffmpeg, [
@@ -161,7 +170,7 @@ export async function exportVideo(file, plan, target, metadata) {
   ], { timeout: 45 * 60_000 });
 }
 
-function videoFilter(segments, index) {
+function videoFilter(segments, index, duration) {
   const { start_us } = segments[0];
   const escape = expression => expression.replaceAll(',', '\\,');
   const keep = segments.map(s => `between(pts,${s.start_us},${s.end_us - 1})`).join('+');
@@ -173,7 +182,9 @@ function videoFilter(segments, index) {
   }
   // Anchor every frame to the plan so encoder rounding does not accumulate at each cut.
   const pts = `${mapped}-(STARTPTS-${start_us})`;
-  return `[0:${index}]settb=AVTB,select=${escape(keep)},setpts=${escape(pts)}[outv]`;
+  const length = (duration / second).toFixed(6);
+  // Hold the last source frame if the video track is shorter than the plan (audio-longer inputs).
+  return `[0:${index}]settb=AVTB,select=${escape(keep)},setpts=${escape(pts)},tpad=stop_mode=clone:stop=-1,trim=duration=${length},setpts=PTS-STARTPTS[outv]`;
 }
 
 function audioFilters(segments, index, duration) {

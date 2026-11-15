@@ -219,3 +219,78 @@ test('可变帧率素材的空帧区间会报错，可保留有帧区间', { tim
   assert(Math.abs(edited.duration_us - 4_960_000) < 42_000, JSON.stringify(edited));
   t.diagnostic(`源文件含 1 秒空帧区间，输出 ${edited.duration_us / 1e6}s`);
 });
+
+
+test('音视频轨时长不一致时，导出两轨都对齐到计划时长', { timeout: 30_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'transcript-cut-av-mismatch-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const ffmpeg = process.env.FFMPEG_BIN ? resolve(process.env.FFMPEG_BIN) : 'ffmpeg';
+  const ffprobe = process.env.FFPROBE_BIN ? resolve(process.env.FFPROBE_BIN) : 'ffprobe';
+
+  async function mux(name, videoDuration, audioDuration) {
+    const video = join(dir, `${name}-v.mp4`);
+    const audio = join(dir, `${name}-a.aac`);
+    const file = join(dir, `${name}.mp4`);
+    await run(ffmpeg, [
+      '-v', 'error', '-f', 'lavfi', '-i', `testsrc2=s=160x90:r=25:d=${videoDuration}`,
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', video,
+    ]);
+    await run(ffmpeg, [
+      '-v', 'error', '-f', 'lavfi', '-i', `sine=frequency=440:sample_rate=48000:duration=${audioDuration}`,
+      '-c:a', 'aac', audio,
+    ]);
+    await run(ffmpeg, ['-v', 'error', '-i', video, '-i', audio, '-c', 'copy', file]);
+    return file;
+  }
+
+  async function streamDurations(file) {
+    const { format, streams } = JSON.parse(await run(ffprobe, [
+      '-v', 'error', '-show_entries', 'format=duration',
+      '-show_entries', 'stream=codec_type,duration', '-of', 'json', file,
+    ]));
+    const durationOf = type => Number(streams.find(stream => stream.codec_type === type)?.duration);
+    return { format: Number(format.duration), video: durationOf('video'), audio: durationOf('audio') };
+  }
+
+  function assertAligned(actual, planned, info) {
+    assert(Math.abs(actual.audio - planned) <= 0.024, JSON.stringify({ actual, planned, info }));
+    assert(Math.abs(actual.video - planned) <= 0.042, JSON.stringify({ actual, planned, info }));
+  }
+
+  const videoLonger = await mux('video-longer', 6, 4);
+  const videoLongerMeta = await probe(videoLonger);
+  assert.equal(videoLongerMeta.duration_us, 6_000_000);
+  assert.equal(videoLongerMeta.video_duration_us, 6_000_000);
+  assert(Math.abs(videoLongerMeta.audio_duration_us - 4_000_000) < 50_000);
+  const videoLongerOut = join(dir, 'video-longer-out.mp4');
+  await exportVideo(videoLonger, {
+    kept: [
+      { start_us: 0, end_us: 2_000_000, output_start_us: 0 },
+      { start_us: 3_000_000, end_us: 6_000_000, output_start_us: 2_000_000 },
+    ],
+    output_duration_us: 5_000_000,
+  }, videoLongerOut, videoLongerMeta);
+  const videoLongerDur = await streamDurations(videoLongerOut);
+  assertAligned(videoLongerDur, 5, 'video-longer');
+
+  const audioLonger = await mux('audio-longer', 4, 6);
+  const audioLongerMeta = await probe(audioLonger);
+  const sourceDur = await streamDurations(audioLonger);
+  assert.equal(audioLongerMeta.video_duration_us, 4_000_000);
+  assert(audioLongerMeta.audio_duration_us > 5_900_000);
+  assert.equal(audioLongerMeta.duration_us, Math.round(sourceDur.format * 1e6));
+  assert(audioLongerMeta.duration_us > audioLongerMeta.video_duration_us);
+
+  const frames = await probeFrameTimes(audioLonger, audioLongerMeta.video_index);
+  assert.throws(() => validateVideoFrames([{ start_us: 4_200_000, end_us: 5_000_000 }], frames), /没有视频帧/);
+
+  const audioLongerOut = join(dir, 'audio-longer-out.mp4');
+  const planUs = audioLongerMeta.duration_us;
+  await exportVideo(audioLonger, {
+    kept: [{ start_us: 0, end_us: planUs, output_start_us: 0 }],
+    output_duration_us: planUs,
+  }, audioLongerOut, audioLongerMeta);
+  const audioLongerDur = await streamDurations(audioLongerOut);
+  assertAligned(audioLongerDur, planUs / 1e6, 'audio-longer');
+  t.diagnostic(`视频长于音频成片 视频 ${videoLongerDur.video}s 音频 ${videoLongerDur.audio}s；音频长于视频成片 视频 ${audioLongerDur.video}s 音频 ${audioLongerDur.audio}s，计划 ${planUs / 1e6}s`);
+});
