@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>文字剪视频</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><div class="mark" aria-hidden="true">✂</div><h1>文字剪视频</h1></div>
+    <div class="actions">
+      <button id="demo" type="button">打开样例</button>
+      <label class="button">导入 MP4<input id="video-file" type="file" accept=".mp4,video/mp4"></label>
+      <button id="export" class="primary" type="button" disabled>导出成片</button>
+    </div>
+  </header>
+  <main>
+    <p id="status" class="status" role="status" hidden></p>
+    <div id="downloads" class="downloads" hidden></div>
+    <div class="workspace">
+      <section class="monitor" aria-labelledby="monitor-heading">
+        <div class="section-head"><h2 id="monitor-heading">预览</h2><span id="filename">未导入视频</span></div>
+        <div class="screen">
+          <video id="player" controls playsinline preload="metadata" hidden></video>
+          <div id="empty-video" class="placeholder">导入 MP4，或打开样例</div>
+        </div>
+        <div class="timeline" id="timeline" aria-label="源视频保留和剪除区间"></div>
+        <div class="section-head stats">
+          <div><span>源视频</span><strong id="duration">—</strong></div>
+          <div><span>成片预计</span><strong id="output-duration">—</strong></div>
+          <div><span>剪除</span><strong id="cut-duration">—</strong></div>
+          <label class="preview"><input id="preview" type="checkbox" disabled>跳过剪除段</label>
+        </div>
+      </section>
+      <section class="editor" aria-labelledby="editor-heading">
+        <div class="section-head">
+          <h2 id="editor-heading">转写稿</h2>
+          <span id="select-help" class="quiet" hidden>Shift + 点击可选多行</span>
+          <div class="actions">
+            <button id="undo" type="button" disabled>撤销</button>
+            <button id="redo" type="button" disabled>重做</button>
+          </div>
+        </div>
+        <div class="import actions">
+          <label class="button">导入 SRT<input id="srt-file" type="file" accept=".srt" disabled></label>
+          <label for="language" class="sr-only">转写语言</label>
+          <select id="language" disabled><option value="zh">中文</option><option value="en">English</option><option value="auto">自动检测</option></select>
+          <button id="transcribe" type="button" disabled>自动转写</button>
+          <span id="transcribe-help" class="quiet"></span>
+          <button id="save-project" type="button" disabled>保存项目</button>
+          <label class="button">恢复项目<input id="project-file" type="file" accept=".json,application/json" disabled></label>
+        </div>
+        <div id="transcript" class="transcript"><p class="empty-copy">加载字幕或自动转写后，点击文字定位原视频。</p></div>
+        <div id="selection" class="selection" hidden>
+          <p id="selected-text"></p>
+          <div class="actions">
+            <label>起点（秒）<input id="start" type="number" min="0" step="0.000001"></label>
+            <label>终点（秒）<input id="end" type="number" min="0" step="0.000001"></label>
+            <button id="listen" type="button">复听</button>
+            <button id="remove" class="dark" type="button">剪掉区间</button>
+            <button id="correct" type="button">修正文字</button>
+          </div>
+        </div>
+      </section>
+    </div>
+    <section class="suggestion-panel" aria-labelledby="suggestion-heading">
+      <div class="section-head"><h2 id="suggestion-heading">建议剪点</h2><span id="suggestion-count"></span></div>
+      <div id="suggestions" class="suggestions"><p class="empty-copy">载入转写稿后，在这里复听口头禅、重复句和长停顿。</p></div>
+    </section>
+  </main>
+  <dialog id="correction">
+    <form id="correct-form" method="dialog">
+      <h2>修正文字</h2>
+      <label for="correction-text" class="sr-only">字幕内容</label>
+      <textarea id="correction-text" rows="4" maxlength="2000"></textarea>
+      <div class="actions"><button value="cancel">取消</button><button class="dark" value="save">保存</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

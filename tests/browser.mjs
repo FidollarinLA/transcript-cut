@@ -1,0 +1,121 @@
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const { PLAYWRIGHT_MODULE, CHROME_BIN, BROWSER_SCREENSHOT } = process.env;
+if (!PLAYWRIGHT_MODULE || !CHROME_BIN) {
+  throw new Error('请设置 PLAYWRIGHT_MODULE 和 CHROME_BIN 后运行浏览器验收');
+}
+const { chromium } = await import(pathToFileURL(resolve(PLAYWRIGHT_MODULE)));
+const child = spawn(process.execPath, ['server/index.mjs'], {
+  env: { ...process.env, PORT: '0' }, stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true,
+});
+const exit = once(child, 'exit');
+let browser;
+try {
+  const [startup] = await Promise.race([
+    once(child.stdout, 'data'),
+    exit.then(([code]) => { throw new Error(`服务器启动失败 ${code}`); }),
+  ]);
+  const address = startup.toString().match(/http:\/\/127\.0\.0\.1:\d+/)[0];
+  browser = await chromium.launch({ executablePath: CHROME_BIN, headless: true });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto(address);
+  await page.getByRole('button', { name: '打开样例' }).click();
+  await page.locator('.row').first().waitFor();
+  await page.waitForFunction(() => document.querySelector('#player').readyState >= 1);
+  assert.equal(await page.locator('.row').count(), 5);
+  assert.equal(await page.locator('#duration').textContent(), '00:12.000');
+
+  await page.getByRole('button', { name: /口头禅/ }).click();
+  await page.waitForFunction(() => document.querySelector('#player').currentTime >= 2);
+  await page.getByRole('button', { name: '剪掉区间' }).click();
+  assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
+  assert.equal(await page.locator('.row.removed').count(), 1);
+  await page.getByRole('button', { name: '撤销' }).click();
+  assert.equal(await page.locator('#output-duration').textContent(), '00:12.000');
+  await page.getByRole('button', { name: '重做' }).click();
+  assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
+
+  await page.getByRole('button', { name: /剪好后/ }).click();
+  await page.getByRole('button', { name: '修正文字' }).click();
+  await page.locator('#correction-text').fill('最后一句字幕已更正。');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await page.getByRole('button', { name: /最后一句字幕已更正/ }).waitFor();
+
+  await page.locator('#preview').check();
+  await page.evaluate(async () => {
+    const video = document.querySelector('#player');
+    video.currentTime = 2.2;
+    await video.play();
+  });
+  await page.waitForFunction(() => document.querySelector('#player').currentTime >= 4);
+  await page.locator('#player').evaluate(video => video.pause());
+
+  await page.getByRole('button', { name: '导出成片' }).click();
+  const srtLink = page.getByRole('link', { name: '下载 SRT' });
+  await srtLink.waitFor();
+  const srt = await (await page.request.get(address + await srtLink.getAttribute('href'))).text();
+  assert.match(srt, /00:00:08,000 --> 00:00:10,000\n最后一句字幕已更正/);
+  assert.doesNotMatch(srt, /呃/);
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: '保存项目' }).click();
+  const projectPath = await (await download).path();
+  const saved = JSON.parse(await readFile(projectPath, 'utf8'));
+  assert.equal(saved.history.cursor, 2);
+  assert.match(saved.source.sha256, /^[a-f0-9]{64}$/);
+
+  await page.reload();
+  await page.getByRole('button', { name: '打开样例' }).click();
+  await page.locator('.row').first().waitFor();
+  const projectInput = page.locator('#project-file');
+  await projectInput.setInputFiles({
+    name: 'mismatch.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify({ ...saved, source: { ...saved.source, sha256: 'other' } })),
+  });
+  await page.getByRole('status').filter({ hasText: '项目与当前视频不匹配' }).waitFor();
+  assert.equal(await page.locator('#output-duration').textContent(), '00:12.000');
+  await projectInput.setInputFiles({
+    name: 'saved.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(saved)),
+  });
+  await page.getByRole('status').filter({ hasText: '转写稿、剪点和撤销记录已恢复' }).waitFor();
+  assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
+  await page.getByRole('button', { name: /最后一句字幕已更正/ }).waitFor();
+  await page.getByRole('button', { name: '撤销' }).click();
+  await page.getByRole('button', { name: /剪好后/ }).waitFor();
+  await page.locator('.row').nth(2).click();
+  await page.locator('.row').nth(3).click({ modifiers: ['Shift'] });
+  assert.equal(await page.locator('.row.selected').count(), 2);
+  assert.equal(await page.locator('#start').inputValue(), '5.000');
+  assert.equal(await page.locator('#end').inputValue(), '7.500');
+  assert.equal(await page.getByRole('button', { name: '修正文字' }).isDisabled(), true);
+  assert.deepEqual(errors, []);
+  if (BROWSER_SCREENSHOT) await page.screenshot({ path: BROWSER_SCREENSHOT, fullPage: true });
+
+  if (process.env.WHISPER_TEST_INPUT && process.env.WHISPER_MODEL) {
+    await page.locator('#video-file').setInputFiles(process.env.WHISPER_TEST_INPUT);
+    await page.getByRole('status').filter({ hasText: '视频已导入' }).waitFor();
+    await page.getByRole('button', { name: '自动转写' }).click();
+    await page.getByRole('status').filter({ hasText: '转写完成' }).waitFor({ timeout: 60_000 });
+    assert((await page.locator('.row').count()) >= 2);
+    await page.locator('.row').first().click();
+    await page.getByRole('button', { name: '剪掉区间' }).click();
+    await page.getByRole('button', { name: '导出成片' }).click();
+    await page.getByRole('link', { name: '下载 MP4' }).waitFor();
+    assert.deepEqual(errors, []);
+    console.log('浏览器实际完成中文转写、选择句段剪辑、MP4 导出');
+  }
+  console.log('浏览器验收通过，剪辑、预览、字幕导出、保存恢复、源文件不匹配校验均可用');
+} finally {
+  if (browser) await browser.close();
+  child.kill();
+  await exit;
+}

@@ -1,0 +1,105 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "local/transcript_cut/core"
+
+import {
+  "moonbitlang/core/json",
+}
+
+// Values
+pub fn dispatch(String) -> String
+
+pub fn execute(Request) -> EditResult raise Invalid
+
+// Errors
+pub suberror Invalid {
+  Invalid(String)
+}
+
+// Types and methods
+#derive(@json.ToJson)
+pub struct EditResult {
+  history : History
+  plan : Plan
+  suggestions : Array[Suggestion]
+}
+pub fn EditResult::to_json(Self) -> @json.Json
+
+#derive(@json.FromJson, @json.ToJson)
+pub(all) struct History {
+  operations : Array[Operation]
+  cursor : Int32
+}
+pub fn History::from_json(@json.Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
+pub fn History::to_json(Self) -> @json.Json
+
+#derive(@json.ToJson)
+pub struct Interval {
+  start_us : Int64
+  end_us : Int64
+}
+pub fn Interval::to_json(Self) -> @json.Json
+
+#derive(@json.FromJson, @json.ToJson)
+pub(all) struct Operation {
+  kind : String
+  span_id : String
+  start_us : Int64
+  end_us : Int64
+  text : String
+}
+pub fn Operation::from_json(@json.Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
+pub fn Operation::to_json(Self) -> @json.Json
+
+#derive(@json.ToJson)
+pub struct Plan {
+  schema_version : Int32
+  deleted : Array[Interval]
+  kept : Array[Segment]
+  output_duration_us : Int64
+  captions : Array[Span]
+  partial_span_ids : Array[String]
+  srt : String
+}
+pub fn Plan::source_to_output(Self, Int64) -> Int64?
+pub fn Plan::to_json(Self) -> @json.Json
+
+#derive(@json.FromJson)
+pub(all) struct Request {
+  duration_us : Int64
+  spans : Array[Span]
+  history : History
+  action : String
+  operation : Operation?
+}
+pub fn Request::from_json(@json.Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
+
+#derive(@json.ToJson)
+pub struct Segment {
+  start_us : Int64
+  end_us : Int64
+  output_start_us : Int64
+}
+pub fn Segment::to_json(Self) -> @json.Json
+
+#derive(@json.FromJson, @json.ToJson)
+pub(all) struct Span {
+  id : String
+  start_us : Int64
+  end_us : Int64
+  text : String
+}
+pub fn Span::from_json(@json.Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
+pub fn Span::to_json(Self) -> @json.Json
+
+#derive(@json.ToJson)
+pub struct Suggestion {
+  kind : String
+  span_id : String
+  start_us : Int64
+  end_us : Int64
+}
+pub fn Suggestion::to_json(Self) -> @json.Json
+
+// Type aliases
+
+// Traits
