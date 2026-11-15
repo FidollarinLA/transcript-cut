@@ -1,4 +1,5 @@
 import { createReadStream, createWriteStream } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -213,7 +214,17 @@ const server = createServer((req, res) => {
     else if (!res.destroyed) res.destroy();
   });
 });
-server.listen(port, host, () => console.log(`文字剪视频 http://${host}:${server.address().port}`));
+server.listen(port, host, () => {
+  const address = `http://${host}:${server.address().port}`;
+  console.log(`文字剪视频 ${address}`);
+  if (process.platform === 'win32' && process.env.TRANSCRIPT_CUT_OPEN === '1') {
+    const browser = spawn('rundll32.exe', ['url.dll,FileProtocolHandler', address], {
+      stdio: 'ignore', windowsHide: true,
+    });
+    browser.on('error', () => console.error(`请在浏览器打开 ${address}`));
+    browser.unref();
+  }
+});
 server.once('error', async error => {
   console.error(error.message);
   await rm(root, { recursive: true, force: true });

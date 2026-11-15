@@ -4,6 +4,8 @@
 
 ## 快速运行
 
+在 Windows 资源管理器双击 **启动文字剪视频.cmd**。服务就绪后会打开默认浏览器，请保持启动窗口开启。再次双击可以重新打开编辑器。
+
 需要 Node.js 22+、MoonBit 工具链，以及 PATH 里的 FFmpeg 和 ffprobe。已验证 MoonBit 0.1.20261104、moonc 0.10.20、Node.js 24.22.1 和 FFmpeg 9.0。FFmpeg 需要含 `libx264`，自动转写还需要含 `whisper` 滤镜。
 
 ```powershell
