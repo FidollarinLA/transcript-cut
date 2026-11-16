@@ -8,6 +8,7 @@ import { once } from 'node:events';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { exportVideo, probe, probeFrameTimes, run, validateVideoFrames } from '../server/media.mjs';
+import { appendTrackDurationTip, time } from '../web/status-tip.js';
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 
@@ -262,6 +263,12 @@ test('音视频轨时长不一致时，导出两轨都对齐到计划时长', { 
   assert.equal(videoLongerMeta.duration_us, 6_000_000);
   assert.equal(videoLongerMeta.video_duration_us, 6_000_000);
   assert(Math.abs(videoLongerMeta.audio_duration_us - 4_000_000) < 50_000);
+  const imported = '视频已导入。可以导入同源 SRT 或自动转写。';
+  assert.equal(
+    appendTrackDurationTip(imported, videoLongerMeta.video_duration_us, videoLongerMeta.audio_duration_us),
+    `${imported}视频轨 ${time(videoLongerMeta.video_duration_us)}，音频轨 ${time(videoLongerMeta.audio_duration_us)}，相差超过 0.1 秒。`,
+  );
+  assert.equal(appendTrackDurationTip(imported, videoLongerMeta.duration_us, videoLongerMeta.duration_us), imported);
   const videoLongerOut = join(dir, 'video-longer-out.mp4');
   await exportVideo(videoLonger, {
     kept: [
@@ -280,6 +287,10 @@ test('音视频轨时长不一致时，导出两轨都对齐到计划时长', { 
   assert(audioLongerMeta.audio_duration_us > 5_900_000);
   assert.equal(audioLongerMeta.duration_us, Math.round(sourceDur.format * 1e6));
   assert(audioLongerMeta.duration_us > audioLongerMeta.video_duration_us);
+  assert.equal(
+    appendTrackDurationTip(imported, audioLongerMeta.video_duration_us, audioLongerMeta.audio_duration_us),
+    `${imported}视频轨 ${time(audioLongerMeta.video_duration_us)}，音频轨 ${time(audioLongerMeta.audio_duration_us)}，相差超过 0.1 秒。`,
+  );
 
   const frames = await probeFrameTimes(audioLonger, audioLongerMeta.video_index);
   assert.throws(() => validateVideoFrames([{ start_us: 4_200_000, end_us: 5_000_000 }], frames), /没有视频帧/);

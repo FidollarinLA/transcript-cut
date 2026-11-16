@@ -1,5 +1,6 @@
 import { dispatch } from '/core.js';
 import { calculateEdit } from '/edit-core.js';
+import { appendTrackDurationTip, time } from '/status-tip.js';
 
 const el = id => document.getElementById(id);
 const player = el('player');
@@ -96,7 +97,7 @@ function allowReplacingTranscript() {
   return !state.history.cursor || window.confirm('替换转写稿会清空当前编辑，继续吗？');
 }
 
-function setAsset(asset, name) {
+function setAsset(asset, name, message) {
   state.asset = asset;
   el('filename').textContent = name;
   el('empty-video').hidden = true;
@@ -106,14 +107,8 @@ function setAsset(asset, name) {
   el('preview').checked = false;
   state.listenUntil = null;
   replaceSpans(asset.spans);
+  notice(appendTrackDurationTip(message, asset.video_duration_us, asset.audio_duration_us));
 }
-
-const time = us => {
-  const ms = Math.round(us / 1000);
-  const minutes = String(Math.floor(ms / 60000)).padStart(2, '0');
-  const seconds = String(Math.floor(ms / 1000) % 60).padStart(2, '0');
-  return `${minutes}:${seconds}.${String(ms % 1000).padStart(3, '0')}`;
-};
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -281,16 +276,14 @@ function apply(action, operation) {
 }
 
 el('demo').onclick = () => perform('正在打开样例…', async () => {
-  setAsset(await post('/api/demo'), '样例 · 12 秒测试片');
-  notice('样例已就绪。请选择一行，复听后剪掉，再导出。');
+  setAsset(await post('/api/demo'), '样例 · 12 秒测试片', '样例已就绪。请选择一行，复听后剪掉，再导出。');
 });
 el('video-file').onchange = event => {
   const file = event.target.files[0];
   event.target.value = '';
   if (!file) return;
   void perform('正在读取视频…', async () => {
-    setAsset(await request('/api/assets', { method: 'POST', body: file }), file.name);
-    notice('视频已导入。可以导入同源 SRT 或自动转写。');
+    setAsset(await request('/api/assets', { method: 'POST', body: file }), file.name, '视频已导入。可以导入同源 SRT 或自动转写。');
   });
 };
 el('srt-file').onchange = event => {
