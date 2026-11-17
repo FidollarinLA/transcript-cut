@@ -152,7 +152,13 @@ function render() {
   for (const part of parts.sort((a, b) => a.start_us - b.start_us)) {
     const bar = element('span', part.removed ? 'removed' : '', '');
     bar.style.flexGrow = String(part.end_us - part.start_us);
-    bar.title = `${part.removed ? '剪除' : '保留'} ${time(part.start_us)} – ${time(part.end_us)}`;
+    bar.title = `${part.removed ? '剪除' : '保留'} ${time(part.start_us)} – ${time(part.end_us)}（点击跳转）`;
+    bar.onclick = () => {
+      if (state.asset) {
+        state.listenUntil = null;
+        player.currentTime = part.start_us / unit;
+      }
+    };
     timeline.append(bar);
   }
   el('duration').textContent = time(asset.duration_us);

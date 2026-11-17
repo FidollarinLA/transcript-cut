@@ -42,6 +42,12 @@ try {
   await page.getByRole('button', { name: '重做' }).click();
   assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
 
+  // 验证时间轴切段点击跳转定位
+  const timelineBars = page.locator('#timeline span');
+  assert((await timelineBars.count()) >= 2);
+  await timelineBars.last().click();
+  await page.waitForFunction(() => document.querySelector('#player').currentTime >= 4);
+
   // 验证键盘快捷键：Ctrl+Z 撤销，Ctrl+Y 重做
   await page.keyboard.press('Control+z');
   assert.equal(await page.locator('#output-duration').textContent(), '00:12.000');
