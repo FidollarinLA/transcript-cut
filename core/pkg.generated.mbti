@@ -17,7 +17,7 @@ pub suberror Invalid {
 
 // Types and methods
 #derive(@json.ToJson)
-pub struct EditResult {
+pub(all) struct EditResult {
   history : History
   plan : Plan
   suggestions : Array[Suggestion]
@@ -33,7 +33,7 @@ pub fn History::from_json(@json.Json, @json.JsonPath) -> Self raise @json.JsonDe
 pub fn History::to_json(Self) -> @json.Json
 
 #derive(@json.ToJson)
-pub struct Interval {
+pub(all) struct Interval {
   start_us : Int64
   end_us : Int64
 }
@@ -51,7 +51,7 @@ pub fn Operation::from_json(@json.Json, @json.JsonPath) -> Self raise @json.Json
 pub fn Operation::to_json(Self) -> @json.Json
 
 #derive(@json.ToJson)
-pub struct Plan {
+pub(all) struct Plan {
   schema_version : Int32
   deleted : Array[Interval]
   kept : Array[Segment]
@@ -60,6 +60,7 @@ pub struct Plan {
   partial_span_ids : Array[String]
   srt : String
 }
+pub fn Plan::output_to_source(Self, Int64) -> Int64?
 pub fn Plan::source_to_output(Self, Int64) -> Int64?
 pub fn Plan::to_json(Self) -> @json.Json
 
@@ -74,7 +75,7 @@ pub(all) struct Request {
 pub fn Request::from_json(@json.Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
 
 #derive(@json.ToJson)
-pub struct Segment {
+pub(all) struct Segment {
   start_us : Int64
   end_us : Int64
   output_start_us : Int64
@@ -92,7 +93,7 @@ pub fn Span::from_json(@json.Json, @json.JsonPath) -> Self raise @json.JsonDecod
 pub fn Span::to_json(Self) -> @json.Json
 
 #derive(@json.ToJson)
-pub struct Suggestion {
+pub(all) struct Suggestion {
   kind : String
   span_id : String
   start_us : Int64

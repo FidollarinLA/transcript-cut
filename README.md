@@ -17,6 +17,14 @@ node server/index.mjs
 
 按住 Shift 点击另一行可连续选中多句。启用**跳过剪除段**查看粗剪效果。导出前可用撤销、重做和手动切点微调。
 
+编辑器支持键盘快捷键：
+- **空格 / K**：播放或暂停视频。
+- **J / L** 或 **← / →**：后退或快进 1 秒。
+- **Ctrl+Z / Ctrl+Y**（macOS 对应 Cmd）：撤销与重做剪辑操作。
+- **↑ / ↓**：上下切换字幕句段；按住 **Shift** 连续增选多行。
+- **Delete / Backspace**：快速剪除当前选区。
+- **Escape**：取消当前选区。输入框打字与文字修正弹窗内自动隔离全局快捷键。
+
 导入自己的文件时，使用一条 H.264 视频轨和一条 AAC 音频轨、起点为 0 秒的 MP4。可以导入与视频匹配的 UTF-8 SRT，也可以设置本机 Whisper 模型。点**保存项目**下载转写稿和编辑历史。下次先导入同一个 MP4，再点**恢复项目**。
 
 ## 自动转写
@@ -42,3 +50,12 @@ node --test tests/*.test.mjs
 - `MOON_BIN` 可指定工具链路径。自带独立工具链且与全局版本并存时，同时设置 `MOON_HOME`。该仓库的运行命令无需安装 npm 依赖。
 - 测试设置 `WHISPER_TEST_INPUT` 和 `WHISPER_MODEL` 时，会实际转写指定中文测试片并验证剪辑。`WHISPER_TEST_PATTERN` 可以指定样本应识别出的关键词正则，缺省检查“视频”。
 - 可选浏览器验收用 `node tests/browser.mjs`。设置 `PLAYWRIGHT_MODULE` 指向 playwright-core 入口 `index.mjs`，以及 `CHROME_BIN` 指向 Chrome 可执行文件。
+
+## MoonBit 核心库 API
+
+`core/` 提供了可独立供其他 MoonBit 项目复用的剪辑核心（已验证 `--target js` 与 `--target wasm-gc`）：
+
+- `execute(request : Request) -> EditResult raise Invalid`：根据半开微秒区间计算删除求补集、有序保留区间、字幕重算与口头禅/重复/停顿候选。
+- `Plan::source_to_output(self : Plan, source_us : Int64) -> Int64?`：将源视频微秒时间戳映射到输出时间轴（被删片段返回 `None`）。
+- `Plan::output_to_source(self : Plan, output_us : Int64) -> Int64?`：将成片时间戳反向映射回原始素材时间戳。
+- 导出的结构体（`Interval`、`Segment`、`Suggestion`、`Plan`、`EditResult` 等）均使用 `pub(all)`，便于外部包直接解构与访问字段。

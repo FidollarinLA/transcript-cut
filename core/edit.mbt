@@ -1,6 +1,6 @@
 ///|
 #derive(ToJson)
-pub struct Interval {
+pub(all) struct Interval {
   start_us : Int64
   end_us : Int64
 }
@@ -67,7 +67,7 @@ pub extend Request with @json.FromJson::{from_json}
 
 ///|
 #derive(ToJson)
-pub struct Segment {
+pub(all) struct Segment {
   start_us : Int64
   end_us : Int64
   output_start_us : Int64
@@ -78,7 +78,7 @@ pub extend Segment with ToJson::{to_json}
 
 ///|
 #derive(ToJson)
-pub struct Suggestion {
+pub(all) struct Suggestion {
   kind : String
   span_id : String
   start_us : Int64
@@ -90,7 +90,7 @@ pub extend Suggestion with ToJson::{to_json}
 
 ///|
 #derive(ToJson)
-pub struct Plan {
+pub(all) struct Plan {
   schema_version : Int32
   deleted : Array[Interval]
   kept : Array[Segment]
@@ -110,7 +110,7 @@ pub suberror Invalid {
 
 ///|
 #derive(ToJson)
-pub struct EditResult {
+pub(all) struct EditResult {
   history : History
   plan : Plan
   suggestions : Array[Suggestion]
@@ -123,6 +123,23 @@ pub fn Plan::source_to_output(self : Plan, source_us : Int64) -> Int64? {
   for segment in self.kept {
     if segment.start_us <= source_us && source_us < segment.end_us {
       return Some(segment.output_start_us + source_us - segment.start_us)
+    }
+  }
+  None
+}
+
+///|
+/// Maps an output timeline timestamp back onto the source media timeline.
+/// Timestamps outside the output duration return None.
+pub fn Plan::output_to_source(self : Plan, output_us : Int64) -> Int64? {
+  if output_us < 0L || output_us >= self.output_duration_us {
+    return None
+  }
+  for segment in self.kept {
+    let segment_len = segment.end_us - segment.start_us
+    if segment.output_start_us <= output_us &&
+      output_us < segment.output_start_us + segment_len {
+      return Some(segment.start_us + (output_us - segment.output_start_us))
     }
   }
   None

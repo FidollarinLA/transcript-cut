@@ -22,4 +22,10 @@ test "typed MoonBit API trims and remaps a caption" {
   assert_eq(plan.source_to_output(4000000L), Some(2000000L))
   assert_eq(plan.source_to_output(1000000L), None)
   assert_eq(plan.source_to_output(6000000L), None)
+  assert_eq(plan.output_to_source(0L), Some(0L))
+  assert_eq(plan.output_to_source(1000000L), Some(3000000L))
+  assert_eq(plan.output_to_source(2000000L), Some(4000000L))
+  assert_eq(plan.output_to_source(-1L), None)
+  assert_eq(plan.output_to_source(4000000L), None)
+  assert_eq(plan.output_to_source(5000000L), None)
 }
