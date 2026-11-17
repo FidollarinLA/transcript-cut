@@ -39,8 +39,8 @@
           <h2 id="editor-heading">转写稿</h2>
           <span id="select-help" class="quiet" hidden>Shift + 点击可选多行</span>
           <div class="actions">
-            <button id="undo" type="button" disabled>撤销</button>
-            <button id="redo" type="button" disabled>重做</button>
+            <button id="undo" type="button" disabled title="快捷键: Ctrl+Z">撤销</button>
+            <button id="redo" type="button" disabled title="快捷键: Ctrl+Y / Ctrl+Shift+Z">重做</button>
           </div>
         </div>
         <div class="import actions">
@@ -59,7 +59,7 @@
             <label>起点（秒）<input id="start" type="number" min="0" step="0.000001"></label>
             <label>终点（秒）<input id="end" type="number" min="0" step="0.000001"></label>
             <button id="listen" type="button">复听</button>
-            <button id="remove" class="dark" type="button">剪掉区间</button>
+            <button id="remove" class="dark" type="button" title="快捷键: Delete / Backspace">剪掉区间</button>
             <button id="correct" type="button">修正文字</button>
           </div>
         </div>

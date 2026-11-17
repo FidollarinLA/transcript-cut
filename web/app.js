@@ -1,6 +1,7 @@
 import { dispatch } from '/core.js';
 import { calculateEdit } from '/edit-core.js';
 import { appendTrackDurationTip, time } from '/status-tip.js';
+import { matchShortcut } from '/shortcuts.js';
 
 const el = id => document.getElementById(id);
 const player = el('player');
@@ -377,6 +378,99 @@ if (player.requestVideoFrameCallback) {
   const onFrame = () => { updatePlayback(); player.requestVideoFrameCallback(onFrame); };
   player.requestVideoFrameCallback(onFrame);
 }
+
+window.addEventListener('keydown', event => {
+  const isDialogOpen = el('correction').open;
+  const action = matchShortcut(event, { isDialogOpen });
+  if (!action) return;
+
+  switch (action) {
+    case 'play-pause': {
+      if (state.asset) {
+        event.preventDefault();
+        state.listenUntil = null;
+        if (player.paused) {
+          player.play().catch(error => notice(error.message, true));
+        } else {
+          player.pause();
+        }
+      }
+      break;
+    }
+    case 'undo': {
+      if (state.asset && !state.busy && state.history.cursor > 0) {
+        event.preventDefault();
+        apply('undo');
+      }
+      break;
+    }
+    case 'redo': {
+      if (state.asset && !state.busy && state.history.cursor < state.history.operations.length) {
+        event.preventDefault();
+        apply('redo');
+      }
+      break;
+    }
+    case 'step-back': {
+      if (state.asset) {
+        event.preventDefault();
+        state.listenUntil = null;
+        player.currentTime = Math.max(0, player.currentTime - 1);
+      }
+      break;
+    }
+    case 'step-forward': {
+      if (state.asset) {
+        event.preventDefault();
+        state.listenUntil = null;
+        const maxTime = state.asset.duration_us / unit;
+        player.currentTime = Math.min(maxTime, player.currentTime + 1);
+      }
+      break;
+    }
+    case 'cut': {
+      if (state.selection && !state.busy) {
+        event.preventDefault();
+        el('remove').click();
+      }
+      break;
+    }
+    case 'select-prev':
+    case 'extend-prev':
+    case 'select-next':
+    case 'extend-next': {
+      if (state.spans.length && !state.busy) {
+        event.preventDefault();
+        const extend = action.startsWith('extend');
+        const isNext = action.endsWith('next');
+        let targetIndex = 0;
+        if (state.selection) {
+          const currentAnchor = state.selection.span?.id || state.selection.anchor;
+          const currentIndex = state.spans.findIndex(item => item.id === currentAnchor);
+          targetIndex = isNext
+            ? Math.min(state.spans.length - 1, currentIndex + 1)
+            : Math.max(0, currentIndex - 1);
+        } else {
+          targetIndex = isNext ? 0 : state.spans.length - 1;
+        }
+        const targetSpan = state.spans[targetIndex];
+        if (targetSpan) {
+          selectSpan(targetSpan, extend);
+          rows.get(targetSpan.id)?.button?.scrollIntoView({ block: 'nearest' });
+        }
+      }
+      break;
+    }
+    case 'escape': {
+      if (state.selection) {
+        event.preventDefault();
+        state.selection = null;
+        showSelection();
+      }
+      break;
+    }
+  }
+});
 
 el('export').onclick = async () => {
   const assetId = state.asset.id;
