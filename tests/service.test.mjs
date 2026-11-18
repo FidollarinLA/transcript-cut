@@ -332,3 +332,104 @@ test('音视频轨时长不一致时，导出两轨都对齐到计划时长', { 
   assertAligned(audioLongerDur, planUs / 1e6, 'audio-longer');
   t.diagnostic(`视频长于音频成片 视频 ${videoLongerDur.video}s 音频 ${videoLongerDur.audio}s；音频长于视频成片 视频 ${audioLongerDur.video}s 音频 ${audioLongerDur.audio}s，计划 ${planUs / 1e6}s`);
 });
+
+test('带旋转元数据的竖屏素材导出后画面正向且无残留旋转', { timeout: 30_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'transcript-cut-rotate-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const ffmpeg = process.env.FFMPEG_BIN ? resolve(process.env.FFMPEG_BIN) : 'ffmpeg';
+
+  async function makeSource() {
+    const file = join(dir, 'source.mp4');
+    await run(ffmpeg, [
+      '-v', 'error', '-f', 'lavfi',
+      '-i', 'color=c=blue:s=320x180:r=25:d=4,drawbox=x=0:y=0:w=80:h=180:color=red:t=fill',
+      '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:duration=4',
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', file,
+    ]);
+    return file;
+  }
+
+  async function withRotation(source, degrees, name) {
+    const file = join(dir, `${name}.mp4`);
+    // display_rotation is a counter-clockwise input option and writes a Display Matrix.
+    await run(ffmpeg, ['-v', 'error', '-display_rotation', String(degrees), '-i', source, '-c', 'copy', file]);
+    return file;
+  }
+
+  function isRed([r, g, b]) { return r > 150 && b < 80; }
+  function isBlue([r, g, b]) { return b > 150 && r < 80; }
+
+  async function sample(file, x, y) {
+    const raw = join(dir, `${x}-${y}-${Math.random().toString(16).slice(2)}.rgb`);
+    await run(ffmpeg, [
+      '-v', 'error', '-y', '-i', file, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', raw,
+    ]);
+    const buf = await readFile(raw);
+    const meta = await probe(file);
+    const i = (y * meta.width + x) * 3;
+    return [buf[i], buf[i + 1], buf[i + 2]];
+  }
+
+  const source = await makeSource();
+  for (const { degrees, expected, top, bottom } of [
+    { degrees: 90, expected: 90, top: isBlue, bottom: isRed },
+    { degrees: 270, expected: 270, top: isRed, bottom: isBlue },
+  ]) {
+    const file = await withRotation(source, degrees, `rot-${degrees}`);
+    const meta = await probe(file);
+    assert.equal(meta.rotation, expected);
+    assert.equal(meta.coded_width, 320);
+    assert.equal(meta.coded_height, 180);
+    assert.equal(meta.width, 180);
+    assert.equal(meta.height, 320);
+    assert.equal(meta.displayed_width, 180);
+    assert.equal(meta.displayed_height, 320);
+    assert.equal(meta.duration_us, 4_000_000);
+
+    const output = join(dir, `out-${degrees}.mp4`);
+    await exportVideo(file, {
+      kept: [
+        { start_us: 0, end_us: 1_000_000, output_start_us: 0 },
+        { start_us: 2_000_000, end_us: 4_000_000, output_start_us: 1_000_000 },
+      ],
+      output_duration_us: 3_000_000,
+    }, output, meta);
+    const edited = await probe(output);
+    assert.equal(edited.rotation, 0);
+    assert.equal(edited.width, 180);
+    assert.equal(edited.height, 320);
+    assert.equal(edited.coded_width, 180);
+    assert.equal(edited.coded_height, 320);
+    assert(Math.abs(edited.duration_us - 3_000_000) < 42_000, JSON.stringify(edited));
+    assert(top(await sample(output, 90, 10)), `rotation ${degrees} top should match upright display`);
+    assert(bottom(await sample(output, 90, 310)), `rotation ${degrees} bottom should match upright display`);
+  }
+  t.diagnostic('rotate 90/270 探测到显示尺寸 180x320，导出后画面正向且无残留旋转，成片约 3s');
+});
+
+test('可变帧率且帧间隔不均匀时，剪切导出仍与计划对齐', { timeout: 30_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'transcript-cut-vfr-timing-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const ffmpeg = process.env.FFMPEG_BIN ? resolve(process.env.FFMPEG_BIN) : 'ffmpeg';
+  const file = join(dir, 'uneven.mp4');
+  const output = join(dir, 'edited.mp4');
+  // Keep a dense but uneven cadence: drop every third frame rather than leaving a 1s hole.
+  await run(ffmpeg, [
+    '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=25:d=6',
+    '-f', 'lavfi', '-i', 'sine=frequency=550:sample_rate=48000:duration=6',
+    '-vf', "select='not(eq(mod(n\\,3)\\,2))',setpts=PTS-STARTPTS", '-fps_mode', 'vfr',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', file,
+  ]);
+  const original = await probe(file);
+  assert(original.fps > 0 && original.fps <= 60, JSON.stringify(original));
+  const frames = await probeFrameTimes(file, original.video_index);
+  assert(frames.length > 40, `expected many remaining frames, got ${frames.length}`);
+  const gaps = frames.slice(1).map((t, i) => t - frames[i]);
+  assert(gaps.some(g => g > 50_000), 'expected at least one larger-than-40ms frame gap');
+  const kept = [{ start_us: 1_000_000, end_us: 5_000_000, output_start_us: 0 }];
+  validateVideoFrames(kept, frames);
+  await exportVideo(file, { kept, output_duration_us: 4_000_000 }, output, original);
+  const edited = await probe(output);
+  assert(Math.abs(edited.duration_us - 4_000_000) < 42_000, JSON.stringify(edited));
+  t.diagnostic(`不均匀 VFR 源帧 ${frames.length}，成片 ${edited.duration_us / 1e6}s`);
+});
