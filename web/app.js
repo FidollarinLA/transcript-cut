@@ -264,9 +264,10 @@ function updatePlayback() {
   }
 }
 
-async function waitForJob(id) {
+async function waitForJob(id, onProgress) {
   for (;;) {
     const job = await request(`/api/jobs/${id}`);
+    if (job.progress !== undefined && onProgress) onProgress(job.progress);
     if (job.state === 'done') return job.result;
     if (job.state === 'failed') throw new Error(job.error);
     await new Promise(resolve => setTimeout(resolve, 450));
@@ -349,7 +350,9 @@ el('transcribe').onclick = () => {
   if (!allowReplacingTranscript()) return;
   void perform('Whisper 正在本机转写，可以先看原视频。', async () => {
     const { id } = await post(assetPath('transcribe'), { language: el('language').value });
-    const { spans } = await waitForJob(id);
+    const { spans } = await waitForJob(id, progress => {
+      notice(`Whisper 正在本机转写（${Math.round(progress * 100)}%），可以先看原视频。`);
+    });
     replaceSpans(spans);
     notice(`转写完成，共 ${spans.length} 个句段。请复听后确认切点。`);
   });
@@ -487,7 +490,9 @@ el('export').onclick = async () => {
   notice('正在导出，仍可继续编辑。');
   try {
     const { id } = await post(path, { spans: state.spans, history: state.history });
-    const finished = await waitForJob(id);
+    const finished = await waitForJob(id, progress => {
+      notice(`正在导出（${Math.round(progress * 100)}%），仍可继续编辑。`);
+    });
     if (state.asset.id !== assetId) return;
     const label = element('span', '', `${revision === state.revision ? '成片' : '上一版成片'} · ${time(finished.duration_us)}`);
     label.id = 'export-version';

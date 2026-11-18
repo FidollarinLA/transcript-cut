@@ -120,16 +120,17 @@ async function startJob(asset, kind, work) {
   }
   const id = randomUUID();
   const dir = join(root, asset.id, id);
-  const job = { id, kind, state: 'running', dir };
+  const job = { id, kind, state: 'running', progress: 0, dir };
   jobs.set(id, job);
+  const setProgress = value => { job.progress = Math.min(1, Math.max(0, value)); };
   try {
     await mkdir(dir);
   } catch (error) {
     jobs.delete(id);
     throw error;
   }
-  void work(dir).then(result => {
-    Object.assign(job, { state: 'done', result });
+  void work(dir, setProgress).then(result => {
+    Object.assign(job, { state: 'done', progress: 1, result });
   }).catch(async error => {
     Object.assign(job, { state: 'failed', error: error.message });
     await rm(dir, { recursive: true, force: true }).catch(console.error);
@@ -166,8 +167,10 @@ async function route(req, res) {
     if (method === 'POST' && action === 'transcribe') {
       if (!hasModel) throw new Error('请设置 WHISPER_MODEL 后重启，或直接导入 SRT');
       const { language } = JSON.parse(await body(req, 512));
-      const id = await startJob(asset, 'transcribe', async dir => {
+      const id = await startJob(asset, 'transcribe', async (dir, setProgress) => {
+        setProgress(0.1);
         const spans = await transcribe(asset.file, dir, duration, language);
+        setProgress(0.9);
         await rm(join(dir, 'model.bin'), { force: true });
         return { spans };
       });
@@ -183,10 +186,13 @@ async function route(req, res) {
       });
       if (error) throw new Error(error);
       validateOutput(plan, asset.metadata);
-      const id = await startJob(asset, 'export', async dir => {
+      const id = await startJob(asset, 'export', async (dir, setProgress) => {
+        setProgress(0.1);
         asset.frameTimes ??= await probeFrameTimes(asset.file, asset.metadata.video_index);
         validateVideoFrames(plan.kept, asset.frameTimes);
+        setProgress(0.2);
         await exportVideo(asset.file, plan, join(dir, 'encoding.mp4'), asset.metadata);
+        setProgress(0.9);
         await rename(join(dir, 'encoding.mp4'), join(dir, 'cut.mp4'));
         await writeFile(join(dir, 'captions.srt'), plan.srt);
         return { duration_us: plan.output_duration_us };

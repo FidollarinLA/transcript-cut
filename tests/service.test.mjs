@@ -39,8 +39,10 @@ test('本机 API 导入、对照原始媒体、导出 MP4/SRT 并重试', { time
       const status = await (await fetch(`${base}/api/jobs/${id}`)).json();
       if (status.state !== 'running') {
         assert.equal(status.state, 'done', JSON.stringify(status));
+        assert.equal(status.progress, 1, JSON.stringify(status));
         return status;
       }
+      assert(typeof status.progress === 'number' && status.progress >= 0 && status.progress <= 1);
       await delay(150);
     }
     assert.fail('媒体处理超时');
@@ -221,6 +223,31 @@ test('可变帧率素材的空帧区间会报错，可保留有帧区间', { tim
   t.diagnostic(`源文件含 1 秒空帧区间，输出 ${edited.duration_us / 1e6}s`);
 });
 
+
+test('轨道起点不是 0 秒的 MP4 被拒绝并提示转码', { timeout: 30_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'transcript-cut-nonzero-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const ffmpeg = process.env.FFMPEG_BIN ? resolve(process.env.FFMPEG_BIN) : 'ffmpeg';
+  // Build an MP4 where the audio track starts at 1 second (non-zero start_time).
+  const videoTrack = join(dir, 'video.mp4');
+  const audioTrack = join(dir, 'audio.aac');
+  const delayed = join(dir, 'delayed.mp4');
+  await run(ffmpeg, [
+    '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=25:d=4',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', videoTrack,
+  ]);
+  await run(ffmpeg, [
+    '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:duration=4',
+    '-c:a', 'aac', audioTrack,
+  ]);
+  // Offset the audio stream by 1 second using -itsoffset
+  await run(ffmpeg, [
+    '-v', 'error', '-i', videoTrack, '-itsoffset', '1', '-i', audioTrack,
+    '-c', 'copy', '-map', '0:v', '-map', '1:a', delayed,
+  ]);
+  await assert.rejects(() => probe(delayed), { message: /起点不是 0 秒/ });
+  t.diagnostic('轨道起点非零的 MP4 被正确拒绝');
+});
 
 test('音视频轨时长不一致时，导出两轨都对齐到计划时长', { timeout: 30_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'transcript-cut-av-mismatch-'));
