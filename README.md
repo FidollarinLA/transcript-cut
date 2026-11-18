@@ -6,9 +6,9 @@
 
 在 Windows 资源管理器双击 **启动文字剪视频.cmd**。服务就绪后会打开默认浏览器，请保持启动窗口开启。再次双击会优先打开已在 4317 端口运行的编辑器；若该端口上的本程序无响应，启动脚本会只结束这个无响应进程并重新启动。PATH 里没有 Node.js 22+ 时，启动脚本会尝试使用已安装的 Codex Windows 运行时。
 
-需要 Node.js 22+、MoonBit 工具链（已验证 `moonc 0.10.20+65efd5b93` / `moon 0.1.20261104`），以及 PATH 里的 FFmpeg 和 ffprobe（已验证 FFmpeg 7.1+ / 9.0）。FFmpeg 需要含 `libx264`，自动转写还需要含 `whisper` 滤镜。
+需要 Node.js 22+、MoonBit 工具链（已验证 `moonc 0.10.20+65efd5b93` / `moon 0.1.20261104`），以及 PATH 里的 FFmpeg 和 ffprobe（已验证 FFmpeg 7.1+ / 9.0）。FFmpeg 需要含 `libx264`，自动转写还需要含 `whisper` 滤镜。Linux / macOS 下若通过官方脚本安装 MoonBit，请确保 `~/.moon/bin` 已加入 `PATH`。
 
-```powershell
+```bash
 # 构建 MoonBit 核心为 JS 产物并启动服务
 node scripts/build.mjs
 node server/index.mjs
@@ -36,7 +36,14 @@ npm start
 
 确认 `ffmpeg -hide_banner -h filter=whisper` 显示滤镜，再将 `WHISPER_MODEL` 指向本机的 GGML 多语言模型。中文实测使用 [ggml-base-q5_1.bin](https://huggingface.co/ggerganov/whisper.cpp/blob/main/ggml-base-q5_1.bin)。
 
+```bash
+# Linux / macOS
+export WHISPER_MODEL="/path/to/ggml-base-q5_1.bin"
+node server/index.mjs
+```
+
 ```powershell
+# Windows PowerShell
 $env:WHISPER_MODEL = (Resolve-Path 'C:/path/to/ggml-base-q5_1.bin').Path
 node server/index.mjs
 ```
@@ -71,7 +78,7 @@ npm test
 ```
 
 - **CI 自动化**：GitHub Actions（`.github/workflows/check.yml`）会在 push 与 PR 时自动执行上述完整的 fmt、check (`js` + `wasm-gc`)、test (`js` + `wasm-gc`) 与媒体集成测试。
-- `MOON_BIN` 可指定工具链路径。自带独立工具链且与全局版本并存时，同时设置 `MOON_HOME`。该仓库的运行命令无需安装额外的 npm 依赖。
+- `MOON_BIN` 可指定工具链路径。Linux / macOS 用户若使用官方脚本安装 MoonBit，二进制位于 `~/.moon/bin`；运行上述 `moon` CLI 检查与测试命令前需确保该目录在 `PATH` 中（例如 `export PATH="$HOME/.moon/bin:$PATH"`）。`scripts/build.mjs` 已内置该路径探测，自带独立工具链且与全局版本并存时亦可同时设置 `MOON_HOME`。该仓库的运行命令无需安装额外的 npm 依赖。
 - 测试设置 `WHISPER_TEST_INPUT` 和 `WHISPER_MODEL` 时，会实际转写指定中文测试片并验证剪辑。`WHISPER_TEST_PATTERN` 可以指定样本应识别出的关键词正则，缺省检查“视频”。
 - 可选浏览器验收用 `node tests/browser.mjs`。设置 `PLAYWRIGHT_MODULE` 指向 playwright-core 入口 `index.mjs`，以及 `CHROME_BIN` 指向 Chrome 可执行文件。
 
