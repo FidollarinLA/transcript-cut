@@ -10,6 +10,10 @@ pub fn dispatch(String) -> String
 
 pub fn execute(Request) -> EditResult raise Invalid
 
+pub fn find_span_at(Array[Span], Int64) -> Span?
+
+pub fn find_span_by_id(Array[Span], String) -> Span?
+
 pub fn merge_intervals(Array[Interval]) -> Array[Interval]
 
 pub fn plan(Int64, Array[Span], History) -> EditResult raise Invalid
@@ -19,6 +23,8 @@ pub fn remap_captions(Array[Span], Array[Segment], Map[String, String]) -> (Arra
 pub fn serialize_srt(Array[Span]) -> String
 
 pub fn suggest(Array[Span]) -> Array[Suggestion]
+
+pub fn validate_video_frames(Array[Segment], Array[Int64]) -> Unit raise Invalid
 
 // Errors
 pub suberror Invalid {
@@ -53,11 +59,15 @@ pub(all) struct Interval {
   start_us : Int64
   end_us : Int64
 }
+pub fn Interval::adjacent(Self, Self) -> Bool
 pub fn Interval::contains(Self, Int64) -> Bool
 pub fn Interval::covers(Self, Self) -> Bool
 pub fn Interval::duration(Self) -> Int64
+pub fn Interval::intersection(Self, Self) -> Self?
 pub fn Interval::overlaps(Self, Self) -> Bool
 pub fn Interval::to_json(Self) -> @json.Json
+pub fn Interval::touching_or_overlapping(Self, Self) -> Bool
+pub fn Interval::union(Self, Self) -> Self?
 
 #derive(@json.FromJson, @json.ToJson)
 pub(all) struct Operation {
@@ -67,7 +77,13 @@ pub(all) struct Operation {
   end_us : Int64
   text : String
 }
+pub fn Operation::correct(String, String) -> Self
+pub fn Operation::cut(Int64, Int64) -> Self
+pub fn Operation::duration(Self) -> Int64
 pub fn Operation::from_json(@json.Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
+pub fn Operation::is_correct(Self) -> Bool
+pub fn Operation::is_cut(Self) -> Bool
+pub fn Operation::to_interval(Self) -> Interval
 pub fn Operation::to_json(Self) -> @json.Json
 
 #derive(@json.ToJson)
@@ -80,14 +96,23 @@ pub(all) struct Plan {
   partial_span_ids : Array[String]
   srt : String
 }
+pub fn Plan::find_caption(Self, String) -> Span?
+pub fn Plan::find_caption_at(Self, Int64) -> Span?
+pub fn Plan::find_cut(Self, Int64) -> Interval?
+pub fn Plan::find_kept_segment(Self, Int64) -> Segment?
+pub fn Plan::find_kept_segment_at_output(Self, Int64) -> Segment?
 pub fn Plan::is_covered(Self, Int64, Int64) -> Bool
 pub fn Plan::is_deleted(Self, Int64) -> Bool
 pub fn Plan::is_empty(Self) -> Bool
+pub fn Plan::is_partial(Self, String) -> Bool
+pub fn Plan::is_span_covered(Self, Span) -> Bool
+pub fn Plan::is_suggestion_covered(Self, Suggestion) -> Bool
 pub fn Plan::output_to_source(Self, Int64) -> Int64?
 pub fn Plan::source_to_output(Self, Int64) -> Int64?
 pub fn Plan::to_json(Self) -> @json.Json
 pub fn Plan::total_deleted_us(Self) -> Int64
 pub fn Plan::validate_output(Self, Int64, Int32) -> Unit raise Invalid
+pub fn Plan::validate_video_frames(Self, Array[Int64]) -> Unit raise Invalid
 
 #derive(@json.FromJson)
 pub(all) struct Request {
@@ -107,9 +132,14 @@ pub(all) struct Segment {
 }
 pub fn Segment::contains(Self, Int64) -> Bool
 pub fn Segment::duration(Self) -> Int64
+pub fn Segment::has_frame(Self, Array[Int64]) -> Bool
+pub fn Segment::output_contains(Self, Int64) -> Bool
 pub fn Segment::output_end_us(Self) -> Int64
+pub fn Segment::output_to_source(Self, Int64) -> Int64?
+pub fn Segment::source_to_output(Self, Int64) -> Int64?
 pub fn Segment::to_interval(Self) -> Interval
 pub fn Segment::to_json(Self) -> @json.Json
+pub fn Segment::to_output_interval(Self) -> Interval
 
 #derive(@json.FromJson, @json.ToJson)
 pub(all) struct Span {
@@ -121,6 +151,7 @@ pub(all) struct Span {
 pub fn Span::contains(Self, Int64) -> Bool
 pub fn Span::duration(Self) -> Int64
 pub fn Span::from_json(@json.Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
+pub fn Span::to_interval(Self) -> Interval
 pub fn Span::to_json(Self) -> @json.Json
 
 #derive(@json.FromJson, @json.ToJson)

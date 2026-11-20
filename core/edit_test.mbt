@@ -624,3 +624,355 @@ test "suggestion struct methods, json roundtrip, and explainable reasons" {
   // Empty spans return empty suggestions
   assert_eq(@core.suggest([]).length(), 0)
 }
+
+///|
+test "Interval intersection, adjacent, touching_or_overlapping, and union operations" {
+  let a : @core.Interval = { start_us: 1000L, end_us: 3000L, }
+  let b : @core.Interval = { start_us: 2000L, end_us: 4000L, }
+  let c : @core.Interval = { start_us: 3000L, end_us: 5000L, }
+  let d : @core.Interval = { start_us: 4000L, end_us: 6000L, }
+  let contained : @core.Interval = { start_us: 1500L, end_us: 2500L, }
+
+  // Intersection
+  let ab_inter = a.intersection(b)
+  assert_false(ab_inter is None)
+  assert_eq(ab_inter.unwrap().start_us, 2000L)
+  assert_eq(ab_inter.unwrap().end_us, 3000L)
+
+  // Symmetry: b.intersection(a) == a.intersection(b)
+  let ba_inter = b.intersection(a)
+  assert_false(ba_inter is None)
+  assert_eq(ba_inter.unwrap().start_us, 2000L)
+  assert_eq(ba_inter.unwrap().end_us, 3000L)
+
+  // Disjoint intervals have no intersection
+  assert_true(a.intersection(d) is None)
+
+  // Touching at single point [1000, 3000) and [3000, 5000) is empty intersection
+  assert_true(a.intersection(c) is None)
+
+  // Contained interval intersection equals inner interval
+  let ac_inter = a.intersection(contained)
+  assert_false(ac_inter is None)
+  assert_eq(ac_inter.unwrap().start_us, 1500L)
+  assert_eq(ac_inter.unwrap().end_us, 2500L)
+
+  // Adjacent
+  assert_true(a.adjacent(c))
+  assert_true(c.adjacent(a))
+  assert_false(a.adjacent(b))
+  assert_false(a.adjacent(d))
+
+  // Touching or overlapping
+  assert_true(a.touching_or_overlapping(b))
+  assert_true(a.touching_or_overlapping(c))
+  assert_true(c.touching_or_overlapping(a))
+  assert_false(a.touching_or_overlapping(d))
+  assert_false(d.touching_or_overlapping(a))
+
+  // Union
+  let ab_union = a.union(b)
+  assert_false(ab_union is None)
+  assert_eq(ab_union.unwrap().start_us, 1000L)
+  assert_eq(ab_union.unwrap().end_us, 4000L)
+
+  let ac_union = a.union(c)
+  assert_false(ac_union is None)
+  assert_eq(ac_union.unwrap().start_us, 1000L)
+  assert_eq(ac_union.unwrap().end_us, 5000L)
+
+  // Disjoint union returns None
+  assert_true(a.union(d) is None)
+
+  // Contained union equals outer interval
+  let contained_union = a.union(contained)
+  assert_false(contained_union is None)
+  assert_eq(contained_union.unwrap().start_us, 1000L)
+  assert_eq(contained_union.unwrap().end_us, 3000L)
+}
+
+///|
+test "Operation constructors, duration, to_interval, and kind inspection" {
+  // Operation::cut constructor and methods
+  let cut_op = @core.Operation::cut(1000000L, 3500000L)
+  assert_true(cut_op.is_cut())
+  assert_false(cut_op.is_correct())
+  assert_eq(cut_op.duration(), 2500000L)
+  assert_eq(cut_op.to_interval().start_us, 1000000L)
+  assert_eq(cut_op.to_interval().end_us, 3500000L)
+  assert_eq(cut_op.span_id, "")
+  assert_eq(cut_op.text, "")
+
+  // Inverted or empty cut duration returns 0
+  let empty_cut = @core.Operation::cut(3000L, 3000L)
+  assert_eq(empty_cut.duration(), 0L)
+  let inv_cut = @core.Operation::cut(4000L, 2000L)
+  assert_eq(inv_cut.duration(), 0L)
+
+  // Operation::correct constructor and methods
+  let corr_op = @core.Operation::correct("span-42", "修正文本")
+  assert_false(corr_op.is_cut())
+  assert_true(corr_op.is_correct())
+  assert_eq(corr_op.duration(), 0L)
+  assert_eq(corr_op.span_id, "span-42")
+  assert_eq(corr_op.text, "修正文本")
+  assert_eq(corr_op.to_interval().start_us, 0L)
+  assert_eq(corr_op.to_interval().end_us, 0L)
+
+  // Span::to_interval
+  let sp : @core.Span = {
+    id: "s1",
+    start_us: 500000L,
+    end_us: 1500000L,
+    text: "测试",
+  }
+  let sp_iv = sp.to_interval()
+  assert_eq(sp_iv.start_us, 500000L)
+  assert_eq(sp_iv.end_us, 1500000L)
+}
+
+///|
+test "Segment output coordinates, interval conversion, mapping, and frame presence" {
+  let seg : @core.Segment = {
+    start_us: 2000000L,
+    end_us: 6000000L,
+    output_start_us: 1000000L,
+  }
+  // Basic properties
+  assert_eq(seg.duration(), 4000000L)
+  assert_eq(seg.output_end_us(), 5000000L)
+  assert_eq(seg.to_interval().start_us, 2000000L)
+  assert_eq(seg.to_interval().end_us, 6000000L)
+  assert_eq(seg.to_output_interval().start_us, 1000000L)
+  assert_eq(seg.to_output_interval().end_us, 5000000L)
+
+  // Output containment [1000000L, 5000000L)
+  assert_false(seg.output_contains(999999L))
+  assert_true(seg.output_contains(1000000L))
+  assert_true(seg.output_contains(4999999L))
+  assert_false(seg.output_contains(5000000L))
+
+  // Segment::source_to_output
+  assert_eq(seg.source_to_output(1999999L), None)
+  assert_eq(seg.source_to_output(2000000L), Some(1000000L))
+  assert_eq(seg.source_to_output(3500000L), Some(2500000L))
+  assert_eq(seg.source_to_output(5999999L), Some(4999999L))
+  assert_eq(seg.source_to_output(6000000L), None)
+
+  // Segment::output_to_source
+  assert_eq(seg.output_to_source(999999L), None)
+  assert_eq(seg.output_to_source(1000000L), Some(2000000L))
+  assert_eq(seg.output_to_source(2500000L), Some(3500000L))
+  assert_eq(seg.output_to_source(4999999L), Some(5999999L))
+  assert_eq(seg.output_to_source(5000000L), None)
+
+  // Segment::has_frame with sorted frame timestamps
+  let frames_hit : Array[Int64] = [500000L, 1500000L, 3000000L, 7000000L]
+  assert_true(seg.has_frame(frames_hit))
+
+  let frames_boundary_start : Array[Int64] = [2000000L]
+  assert_true(seg.has_frame(frames_boundary_start))
+
+  let frames_miss : Array[Int64] = [500000L, 1999999L, 6000000L, 7000000L]
+  assert_false(seg.has_frame(frames_miss))
+
+  assert_false(seg.has_frame([]))
+}
+
+///|
+test "validate_video_frames and Plan video frame validation" {
+  let seg1 : @core.Segment = {
+    start_us: 0L,
+    end_us: 2000000L,
+    output_start_us: 0L,
+  }
+  let seg2 : @core.Segment = {
+    start_us: 4000000L,
+    end_us: 6000000L,
+    output_start_us: 2000000L,
+  }
+  let segments : Array[@core.Segment] = [seg1, seg2]
+
+  // Valid: both segments contain frames
+  let valid_frames : Array[Int64] = [500000L, 1500000L, 4500000L, 5500000L]
+  @core.validate_video_frames(segments, valid_frames)
+
+  // Missing frame in segment 2
+  let missing_seg2 : Array[Int64] = [500000L, 2500000L, 7000000L]
+  let mut caught = false
+  @core.validate_video_frames(segments, missing_seg2) catch {
+    @core.Invalid(msg) => {
+      caught = true
+      assert_eq(
+        msg, "第 2 个保留片段没有视频帧，请扩大区间或调整切点",
+      )
+    }
+  }
+  assert_true(caught)
+
+  // Missing frame in segment 1 (empty frames)
+  caught = false
+  @core.validate_video_frames(segments, []) catch {
+    @core.Invalid(msg) => {
+      caught = true
+      assert_eq(
+        msg, "第 1 个保留片段没有视频帧，请扩大区间或调整切点",
+      )
+    }
+  }
+  assert_true(caught)
+
+  // Plan level validate_video_frames
+  let plan_res = @core.execute({
+      duration_us: 6000000L,
+      spans: [],
+      history: {
+        operations: [
+          {
+            kind: "cut",
+            span_id: "",
+            start_us: 2000000L,
+            end_us: 4000000L,
+            text: "",
+          },
+        ],
+        cursor: 1,
+      },
+      action: "plan",
+      operation: None,
+    }).plan
+  plan_res.validate_video_frames(valid_frames)
+
+  caught = false
+  plan_res.validate_video_frames(missing_seg2) catch {
+    @core.Invalid(msg) => {
+      caught = true
+      assert_eq(
+        msg, "第 2 个保留片段没有视频帧，请扩大区间或调整切点",
+      )
+    }
+  }
+  assert_true(caught)
+}
+
+///|
+test "Plan and Span query helpers: find_kept_segment, find_cut, find_caption, covered, and span lookups" {
+  let spans : Array[@core.Span] = [
+    { id: "s1", start_us: 0L, end_us: 1000000L, text: "句一", },
+    { id: "s2", start_us: 1500000L, end_us: 2500000L, text: "跨切点", },
+    { id: "s3", start_us: 5000000L, end_us: 6000000L, text: "句三", },
+  ]
+  let h = @core.History::new().apply({
+    kind: "cut",
+    span_id: "",
+    start_us: 2000000L,
+    end_us: 4000000L,
+    text: "",
+  })
+  let res = @core.plan(8000000L, spans, h)
+  let p = res.plan
+
+  // Plan::is_partial
+  assert_true(p.is_partial("s2"))
+  assert_false(p.is_partial("s1"))
+  assert_false(p.is_partial("s3"))
+  assert_false(p.is_partial("unknown"))
+
+  // Plan::find_kept_segment (source timestamp)
+  let seg_at_500k = p.find_kept_segment(500000L)
+  assert_false(seg_at_500k is None)
+  assert_eq(seg_at_500k.unwrap().start_us, 0L)
+  assert_eq(seg_at_500k.unwrap().end_us, 2000000L)
+
+  assert_true(p.find_kept_segment(2500000L) is None) // cut region
+
+  let seg_at_5m = p.find_kept_segment(5000000L)
+  assert_false(seg_at_5m is None)
+  assert_eq(seg_at_5m.unwrap().start_us, 4000000L)
+  assert_eq(seg_at_5m.unwrap().end_us, 8000000L)
+
+  // Plan::find_kept_segment_at_output (output timestamp)
+  let out_seg_0 = p.find_kept_segment_at_output(500000L)
+  assert_false(out_seg_0 is None)
+  assert_eq(out_seg_0.unwrap().output_start_us, 0L)
+
+  let out_seg_2 = p.find_kept_segment_at_output(3000000L)
+  assert_false(out_seg_2 is None)
+  assert_eq(out_seg_2.unwrap().output_start_us, 2000000L)
+
+  assert_true(p.find_kept_segment_at_output(7000000L) is None) // past output_duration 6s
+
+  // Plan::find_cut (source timestamp)
+  assert_true(p.find_cut(500000L) is None)
+  let cut_found = p.find_cut(2500000L)
+  assert_false(cut_found is None)
+  assert_eq(cut_found.unwrap().start_us, 2000000L)
+  assert_eq(cut_found.unwrap().end_us, 4000000L)
+  assert_true(p.find_cut(4000000L) is None) // boundary
+
+  // Plan::find_caption (by span id in remapped captions)
+  let cap1 = p.find_caption("s1")
+  assert_false(cap1 is None)
+  assert_eq(cap1.unwrap().text, "句一")
+  assert_true(p.find_caption("s2") is None) // partial cut span omitted
+  let cap3 = p.find_caption("s3")
+  assert_false(cap3 is None)
+  assert_eq(cap3.unwrap().text, "句三")
+  assert_true(p.find_caption("unknown") is None)
+
+  // Plan::find_caption_at (by output timestamp)
+  // s1: out [0, 1s)
+  // s3: source [5s, 6s) -> shifted by -2s -> out [3s, 4s)
+  let cap_at_500k = p.find_caption_at(500000L)
+  assert_false(cap_at_500k is None)
+  assert_eq(cap_at_500k.unwrap().id, "s1")
+
+  assert_true(p.find_caption_at(2000000L) is None) // between captions
+
+  let cap_at_3500k = p.find_caption_at(3500000L)
+  assert_false(cap_at_3500k is None)
+  assert_eq(cap_at_3500k.unwrap().id, "s3")
+
+  // Plan::is_span_covered
+  let fully_cut_span : @core.Span = {
+    id: "fc",
+    start_us: 2200000L,
+    end_us: 3800000L,
+    text: "全删",
+  }
+  assert_true(p.is_span_covered(fully_cut_span))
+  assert_false(p.is_span_covered(spans[0]))
+  assert_false(p.is_span_covered(spans[1])) // partly cut, not fully covered
+
+  // Plan::is_suggestion_covered
+  let sug_covered : @core.Suggestion = {
+    kind: "filler",
+    span_id: "fc",
+    start_us: 2200000L,
+    end_us: 3800000L,
+    reason: "口头禅「全删」",
+  }
+  let sug_uncovered : @core.Suggestion = {
+    kind: "filler",
+    span_id: "s1",
+    start_us: 0L,
+    end_us: 1000000L,
+    reason: "口头禅「句一」",
+  }
+  assert_true(p.is_suggestion_covered(sug_covered))
+  assert_false(p.is_suggestion_covered(sug_uncovered))
+
+  // find_span_at and find_span_by_id across transcript spans
+  let found_span_0 = @core.find_span_at(spans, 500000L)
+  assert_false(found_span_0 is None)
+  assert_eq(found_span_0.unwrap().id, "s1")
+
+  let found_span_cross = @core.find_span_at(spans, 2000000L)
+  assert_false(found_span_cross is None)
+  assert_eq(found_span_cross.unwrap().id, "s2")
+
+  assert_true(@core.find_span_at(spans, 1200000L) is None) // gap
+
+  assert_eq(@core.find_span_by_id(spans, "s2").unwrap().text, "跨切点")
+  assert_true(@core.find_span_by_id(spans, "missing") is None)
+}

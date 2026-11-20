@@ -33,6 +33,57 @@ pub fn Interval::overlaps(self : Interval, other : Interval) -> Bool {
 }
 
 ///|
+/// Returns the intersection of two intervals, or None if they do not overlap.
+pub fn Interval::intersection(self : Interval, other : Interval) -> Interval? {
+  let start = if self.start_us > other.start_us {
+    self.start_us
+  } else {
+    other.start_us
+  }
+  let end = if self.end_us < other.end_us { self.end_us } else { other.end_us }
+  if start < end {
+    Some({ start_us: start, end_us: end, })
+  } else {
+    None
+  }
+}
+
+///|
+/// Checks whether two intervals are immediately adjacent (touching without overlapping).
+pub fn Interval::adjacent(self : Interval, other : Interval) -> Bool {
+  self.end_us == other.start_us || other.end_us == self.start_us
+}
+
+///|
+/// Checks whether two intervals touch or overlap.
+pub fn Interval::touching_or_overlapping(
+  self : Interval,
+  other : Interval,
+) -> Bool {
+  self.start_us <= other.end_us && other.start_us <= self.end_us
+}
+
+///|
+/// Returns the union of two touching or overlapping intervals, or None if disjoint.
+pub fn Interval::union(self : Interval, other : Interval) -> Interval? {
+  if self.touching_or_overlapping(other) {
+    let start = if self.start_us < other.start_us {
+      self.start_us
+    } else {
+      other.start_us
+    }
+    let end = if self.end_us > other.end_us {
+      self.end_us
+    } else {
+      other.end_us
+    }
+    Some({ start_us: start, end_us: end, })
+  } else {
+    None
+  }
+}
+
+///|
 #derive(ToJson, @json.FromJson)
 pub(all) struct Span {
   id : String
@@ -60,6 +111,12 @@ pub fn Span::contains(self : Span, timestamp_us : Int64) -> Bool {
 }
 
 ///|
+/// Converts the span into a source interval.
+pub fn Span::to_interval(self : Span) -> Interval {
+  { start_us: self.start_us, end_us: self.end_us, }
+}
+
+///|
 #derive(ToJson, @json.FromJson)
 pub(all) struct Operation {
   kind : String
@@ -74,6 +131,46 @@ pub extend Operation with ToJson::{to_json}
 
 ///|
 pub extend Operation with @json.FromJson::{from_json}
+
+///|
+/// Creates a cut operation for the half-open interval [start_us, end_us).
+pub fn Operation::cut(start_us : Int64, end_us : Int64) -> Operation {
+  { kind: "cut", span_id: "", start_us, end_us, text: "", }
+}
+
+///|
+/// Creates a caption text correction operation for the specified span ID.
+pub fn Operation::correct(span_id : String, text : String) -> Operation {
+  { kind: "correct", span_id, start_us: 0L, end_us: 0L, text, }
+}
+
+///|
+/// Returns the duration in microseconds for cut operations (or 0L for corrections).
+pub fn Operation::duration(self : Operation) -> Int64 {
+  if self.kind == "cut" && self.end_us > self.start_us {
+    self.end_us - self.start_us
+  } else {
+    0L
+  }
+}
+
+///|
+/// Converts the operation into an interval [start_us, end_us).
+pub fn Operation::to_interval(self : Operation) -> Interval {
+  { start_us: self.start_us, end_us: self.end_us, }
+}
+
+///|
+/// Checks whether this operation is a cut.
+pub fn Operation::is_cut(self : Operation) -> Bool {
+  self.kind == "cut"
+}
+
+///|
+/// Checks whether this operation is a text correction.
+pub fn Operation::is_correct(self : Operation) -> Bool {
+  self.kind == "correct"
+}
 
 ///|
 #derive(ToJson, @json.FromJson)
@@ -198,6 +295,52 @@ pub fn Segment::to_interval(self : Segment) -> Interval {
 }
 
 ///|
+/// Checks whether an output timestamp falls within this segment's output range [output_start_us, output_end_us).
+pub fn Segment::output_contains(self : Segment, output_us : Int64) -> Bool {
+  self.output_start_us <= output_us && output_us < self.output_end_us()
+}
+
+///|
+/// Returns the output interval [output_start_us, output_end_us) for this segment.
+pub fn Segment::to_output_interval(self : Segment) -> Interval {
+  { start_us: self.output_start_us, end_us: self.output_end_us(), }
+}
+
+///|
+/// Maps a source timestamp within this segment onto the output timeline, or None if outside.
+pub fn Segment::source_to_output(self : Segment, source_us : Int64) -> Int64? {
+  if self.contains(source_us) {
+    Some(self.output_start_us + (source_us - self.start_us))
+  } else {
+    None
+  }
+}
+
+///|
+/// Maps an output timestamp within this segment back to the source timeline, or None if outside.
+pub fn Segment::output_to_source(self : Segment, output_us : Int64) -> Int64? {
+  if self.output_contains(output_us) {
+    Some(self.start_us + (output_us - self.output_start_us))
+  } else {
+    None
+  }
+}
+
+///|
+/// Checks whether this segment contains at least one video frame from the given sorted frame timestamps.
+pub fn Segment::has_frame(self : Segment, frame_times : Array[Int64]) -> Bool {
+  for frame_time in frame_times {
+    if self.contains(frame_time) {
+      return true
+    }
+    if frame_time >= self.end_us {
+      break
+    }
+  }
+  false
+}
+
+///|
 #derive(ToJson, @json.FromJson)
 pub(all) struct Suggestion {
   kind : String
@@ -314,6 +457,141 @@ pub fn Plan::validate_output(
 }
 
 ///|
+/// Validates that every retained segment contains at least one video frame from the sorted frame timestamps.
+/// Raises Invalid if any segment has no frame.
+pub fn validate_video_frames(
+  segments : Array[Segment],
+  frame_times : Array[Int64],
+) -> Unit raise Invalid {
+  let mut frame = 0
+  for i, segment in segments {
+    while frame < frame_times.length() && frame_times[frame] < segment.start_us {
+      frame += 1
+    }
+    if frame >= frame_times.length() || frame_times[frame] >= segment.end_us {
+      raise Invalid(
+        "第 \{i + 1} 个保留片段没有视频帧，请扩大区间或调整切点",
+      )
+    }
+  }
+}
+
+///|
+/// Validates that every retained segment in the plan contains at least one video frame.
+pub fn Plan::validate_video_frames(
+  self : Plan,
+  frame_times : Array[Int64],
+) -> Unit raise Invalid {
+  validate_video_frames(self.kept, frame_times)
+}
+
+///|
+/// Checks whether a span ID was flagged as partially cut (requiring manual review).
+pub fn Plan::is_partial(self : Plan, span_id : String) -> Bool {
+  for id in self.partial_span_ids {
+    if id == span_id {
+      return true
+    }
+  }
+  false
+}
+
+///|
+/// Finds the retained segment that contains the given source timestamp, or None if cut.
+pub fn Plan::find_kept_segment(self : Plan, source_us : Int64) -> Segment? {
+  for segment in self.kept {
+    if segment.contains(source_us) {
+      return Some(segment)
+    }
+  }
+  None
+}
+
+///|
+/// Finds the retained segment that contains the given output timestamp, or None if outside.
+pub fn Plan::find_kept_segment_at_output(
+  self : Plan,
+  output_us : Int64,
+) -> Segment? {
+  for segment in self.kept {
+    if segment.output_contains(output_us) {
+      return Some(segment)
+    }
+  }
+  None
+}
+
+///|
+/// Finds the cut interval that contains the given source timestamp, or None if kept.
+pub fn Plan::find_cut(self : Plan, source_us : Int64) -> Interval? {
+  for cut in self.deleted {
+    if cut.contains(source_us) {
+      return Some(cut)
+    }
+  }
+  None
+}
+
+///|
+/// Finds a retained caption by its span ID, or None if deleted or omitted.
+pub fn Plan::find_caption(self : Plan, span_id : String) -> Span? {
+  for caption in self.captions {
+    if caption.id == span_id {
+      return Some(caption)
+    }
+  }
+  None
+}
+
+///|
+/// Finds the retained caption active at an output timestamp, or None if outside any caption.
+pub fn Plan::find_caption_at(self : Plan, output_us : Int64) -> Span? {
+  for caption in self.captions {
+    if caption.contains(output_us) {
+      return Some(caption)
+    }
+  }
+  None
+}
+
+///|
+/// Checks whether a span is completely covered by deleted cuts.
+pub fn Plan::is_span_covered(self : Plan, span : Span) -> Bool {
+  self.is_covered(span.start_us, span.end_us)
+}
+
+///|
+/// Checks whether a suggestion is completely covered by deleted cuts.
+pub fn Plan::is_suggestion_covered(
+  self : Plan,
+  suggestion : Suggestion,
+) -> Bool {
+  self.is_covered(suggestion.start_us, suggestion.end_us)
+}
+
+///|
+/// Finds the transcript span active at the given source timestamp, or None if outside any span.
+pub fn find_span_at(spans : Array[Span], source_us : Int64) -> Span? {
+  for span in spans {
+    if span.contains(source_us) {
+      return Some(span)
+    }
+  }
+  None
+}
+
+///|
+/// Finds the transcript span matching the specified span ID, or None if not found.
+pub fn find_span_by_id(spans : Array[Span], id : String) -> Span? {
+  for span in spans {
+    if span.id == id {
+      return Some(span)
+    }
+  }
+  None
+}
+
+///|
 pub suberror Invalid {
   Invalid(String)
 }
@@ -331,8 +609,9 @@ pub(all) struct EditResult {
 /// Deleted timestamps and the exclusive source endpoint return None.
 pub fn Plan::source_to_output(self : Plan, source_us : Int64) -> Int64? {
   for segment in self.kept {
-    if segment.start_us <= source_us && source_us < segment.end_us {
-      return Some(segment.output_start_us + source_us - segment.start_us)
+    match segment.source_to_output(source_us) {
+      Some(mapped) => return Some(mapped)
+      None => continue
     }
   }
   None
@@ -346,10 +625,9 @@ pub fn Plan::output_to_source(self : Plan, output_us : Int64) -> Int64? {
     return None
   }
   for segment in self.kept {
-    let segment_len = segment.end_us - segment.start_us
-    if segment.output_start_us <= output_us &&
-      output_us < segment.output_start_us + segment_len {
-      return Some(segment.start_us + (output_us - segment.output_start_us))
+    match segment.output_to_source(output_us) {
+      Some(mapped) => return Some(mapped)
+      None => continue
     }
   }
   None
