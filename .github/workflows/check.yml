@@ -28,5 +28,9 @@ jobs:
           moon check --target wasm-gc --deny-warn
           moon test --target js
           moon test --target wasm-gc
+      - name: Run minimal example
+        run: |
+          moon run examples/minimal --target js
+          moon run examples/minimal --target wasm-gc
       - name: Build and run media tests
         run: npm test
