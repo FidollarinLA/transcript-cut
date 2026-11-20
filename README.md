@@ -18,7 +18,9 @@ npm run build
 npm start
 ```
 
-在浏览器打开 [本机编辑器](http://127.0.0.1:4317)。先点**打开样例**，选择一行，点击**复听**和**剪掉区间**，然后导出。样例是 12 秒测试画面与测试字幕，用来验证剪点、时长及字幕的映射。
+在浏览器打开 [本机编辑器](http://127.0.0.1:4317)。先点**打开样例**，选择一行，点击**复听**和**剪掉区间**，然后导出。
+
+> **公开演示样例说明**：仓库自带开箱即用的测试字幕 [`tests/demo.srt`](file:///workspace/transcript-cut/tests/demo.srt)。点击“打开样例”时，本机服务会通过 FFmpeg `lavfi` 滤镜自动合成一段 12 秒的测试音视频（`testsrc2` 纯色画面 + 440 Hz 正弦波音频），完全由代码生成，不依赖任何第三方版权音视频。若需验证真实普通话语音识别，测试套件亦兼容 Open Speech Repository 的公开授权普通话发音样本（如 `OSR_cn_000_0072_8k.wav`）。
 
 按住 Shift 点击另一行可连续选中多句。启用**跳过剪除段**查看粗剪效果。导出前可用撤销、重做和手动切点微调。
 
@@ -54,6 +56,30 @@ Windows 上也可以运行 `./scripts/start-local.ps1 -WhisperModel 'C:/path/to/
 
 本机转写使用句段时标。切点穿过字幕句段时，该段会标为需复核并在当前 SRT 中省略。导出保留段至少要达到平均一帧，最多 100 段。编辑器只监听 `127.0.0.1`。任务文件暂存在系统临时目录，可下载后保留。
 
+## 能力边界与已知限制
+
+基于实际代码合同与媒体管线实测，本项目首版明确以下能力范围与工程边界：
+
+- **媒体格式支持**：仅支持单条 H.264 视频轨与单条 AAC 音频轨的 MP4 容器格式；流播放起点（`start_time`）必须为 0 秒（非零起点音视频轨道无法保证精准对齐，会被严格拦截并提示转码后导入）；视频时长限制在 1 小时以内、帧率最高 60 fps、编码宽高须为偶数。
+- **转写与切点粒度**：当前基于句段级（sentence-level）转写与区间剪切；受限于目前使用的 Whisper 滤镜后端输出精度，暂不支持词级（word-level）高精切点。
+- **轨道与机位模式**：单机位（single-cam）、单素材粗剪；暂不支持多机位切换（multi-cam）、多音轨混音、镜头重排（shot rearrangement）或批量处理（batch processing）。
+- **切点保护与字幕复核策略**：导出的成片保留片段须至少达到平均 1 帧的时长（避免视频编码器空帧崩溃），单次导出保留片段数上限为 100 段；当切点截断某句字幕时，该字幕会被标记为“需复核”并自动从成片 SRT 中省略，避免将已剪掉音频的残余文字带入字幕。
+- **项目存储机制**：支持保存为 `.transcript-cut.json` 项目文件，其中记录原视频 SHA-256 哈希与微秒时长合同；恢复项目时需先载入同一份源 MP4 视频，哈希校验通过后方可还原剪辑历史与文字修饰。
+
+## 项目对标与生态增量
+
+在开源生态中，本项目参考并对照了已有相关实现，其主要差异与增量如下：
+
+- **对标 TranscriptCut (MIT)**：
+  - *继承点*：借鉴了“通过带时标文字定位原片、选句复听、删除片段、实时预览、撤销重做”的文字驱动视频粗剪交互范式。
+  - *增量*：将原有的剪辑逻辑重构为基于 MoonBit 实现的高性能、类型化不可变核心（`core/`），以微秒半开区间严格计算删除补集；在导出端针对音视频轨时长不一致补齐（音频长于视频时定格末帧对齐总时长）、竖屏手机实拍旋转元数据（自动烘焙 90°/270° 正向像素且消除残留矩阵）以及非均匀可变帧率（VFR 按计划输出起点重算 PTS 避免每剪点累积误差）进行了严格的工程实现与自动化回归覆盖。
+- **对标 AutoCut (Apache-2.0)**：
+  - *对照*：AutoCut 采用 Python 脚本通过带时间戳的 Markdown/SRT 驱动视频切割，更偏向命令行与批处理工作流。
+  - *增量*：本项目提供端到端浏览器可视化界面、实时切段定位时间轴、毫秒级交互预览与键盘快捷键粗剪；核心算法由 MoonBit 编写并编译为极轻量的 JS 与 WebAssembly 双后端产物，脱离对重型 Python 运行时的依赖。
+- **对标 MoonTimeline**：
+  - *对照*：MoonTimeline 侧重于通用的时间轴数学抽象与 OpenTimelineIO (OTIO) 多轨交换规范。
+  - *增量*：本项目剪辑核心针对单素材粗剪场景，提供了零外部依赖的半开区间合并、双向时标投影映射（`source_to_output` / `output_to_source`）、智能修剪候选规则（口头禅、重复句、静音停顿）与 SRT 导出序列化，定位为轻量专用的剪辑规划器，未来可直接作为上游向 MoonTimeline 供给数据进行多轨互操作。
+
 ## 验证与接手
 
 完整的本地与 CI 校验流程包含代码格式检查、多目标静态检查、核心测试与媒体集成测试：
@@ -86,9 +112,26 @@ npm test
 
 `core/` 提供了可独立供其他 MoonBit 项目复用的剪辑核心（已验证 `--target js` 与 `--target wasm-gc`）：
 
-- `execute(request : Request) -> EditResult raise Invalid`：根据半开微秒区间计算删除求补集、有序保留区间、字幕重算与口头禅/重复/停顿候选。
-- `Plan::source_to_output(self : Plan, source_us : Int64) -> Int64?`：将源视频微秒时间戳映射到输出时间轴（被删片段返回 `None`）。
-- `Plan::output_to_source(self : Plan, output_us : Int64) -> Int64?`：将成片时间戳反向映射回原始素材时间戳。
+- **计划构建与执行**：
+  - `execute(request : Request) -> EditResult raise Invalid`：根据半开微秒区间计算删除求补集、有序保留区间、字幕重算与建议候选。
+  - `plan(duration_us : Int64, spans : Array[Span], history : History) -> EditResult raise Invalid`：只读计算剪辑计划，不推进编辑历史。
+- **双向时间轴映射**：
+  - `Plan::source_to_output(self : Plan, source_us : Int64) -> Int64?`：将源视频微秒时间戳映射到输出时间轴（被删片段及界外返回 `None`）。
+  - `Plan::output_to_source(self : Plan, output_us : Int64) -> Int64?`：将成片时间戳反向映射回原始素材时间戳（跨界及界外返回 `None`）。
+- **计划与区间状态查询**：
+  - `Plan::is_empty(self : Plan) -> Bool`：检查剪辑后是否已无任何保留内容。
+  - `Plan::is_deleted(self : Plan, source_us : Int64) -> Bool`：检查源微秒点是否落入删除区间。
+  - `Plan::is_covered(self : Plan, start_us : Int64, end_us : Int64) -> Bool`：检查特定半开区间是否完全被剪除。
+  - `Plan::total_deleted_us(self : Plan) -> Int64`：获取所有删除区间的累计微秒总时长。
+  - `Plan::validate_output(self : Plan, min_segment_duration_us : Int64, max_segments : Int32) -> Unit raise Invalid`：严格校验导出计划是否合法（非空、不超过最大段数、段长不低于帧间隔）。
+- **区间与历史操作**：
+  - `merge_intervals(cuts : Array[Interval]) -> Array[Interval]`：将重叠、相邻、无序的半开区间合并为有序不相交区间。
+  - `Interval::contains` / `covers` / `overlaps` / `duration`：半开微秒区间的基本集合运算。
+  - `History::new()` / `undo()` / `redo()` / `apply(op)` / `can_undo()` / `can_redo()`：不可变操作历史状态机。
+- **字幕重排与智能建议**：
+  - `remap_captions(spans, kept, corrections)`：将字幕映射到保留段，自动标记跨切点的需复核句段，应用修改文字并剔除空字幕。
+  - `serialize_srt(captions)`：将字幕数组格式化为标准 SRT 字符串。
+  - `suggest(spans)`：自动探测口头禅（中英文常见语气助词）、重复句（标点归一化比对）与静音长停顿（>= 1.8s）候选区间。
 - 导出的结构体（`Interval`、`Segment`、`Suggestion`、`Plan`、`EditResult` 等）均使用 `pub(all)`，便于外部包直接解构与访问字段。
 
 ## Mooncakes 模块发布准备
