@@ -147,7 +147,14 @@ npm test
 
 ## Mooncakes 模块发布准备
 
-本项目的核心库已做好发布到 Mooncakes (mooncakes.io) 模块注册表的元数据准备。
+本项目的核心库已做好发布到 Mooncakes (mooncakes.io) 模块注册表的元数据准备。当前版本说明见 [CHANGELOG.md](CHANGELOG.md)。最小可运行示例如下，模块名仍保持 `local/transcript_cut`，在作者确认官方名称之前不要执行 `moon publish`。
+
+```bash
+moon run examples/minimal --target js
+moon run examples/minimal --target wasm-gc
+```
+
+该示例会在 6 秒容器上剪掉 `[1s, 3s)`，并打印保留段数量、成片时长，以及源时标 `4000000us` 映射后的成片时标。
 
 - **当前本地模块名**：`moon.mod` 中当前命名为 `local/transcript_cut`。在作者的公共 Mooncakes 账号正式确认前，保持本地命名空间以避免抢占他人命名空间。
 - **提议但待确认的官方模块名**：提议正式名称为 `fidollarinla/transcript_cut`（或在作者确认公共账号后使用 `<author_username>/transcript_cut`），目前仍为提议与待确认状态（unconfirmed）。
