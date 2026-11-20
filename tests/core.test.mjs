@@ -70,14 +70,35 @@ test('整段删空可以撤销，非法边界和坏 JSON 有错误信息', () =>
   assert.match(JSON.parse(dispatch('{')).error, /无法解析/);
 });
 
-test('口头禅、重复、停顿均为候选，不更改剪辑计划', () => {
+test('口头禅、重复、停顿均为候选，不更改剪辑计划，并带有可解释原因', () => {
   const result = calculate({ spans: [
     span('a', 0, 1_000_000, '嗯。'),
     span('b', 4_000_000, 5_000_000, '这是一句。'),
     span('c', 5_500_000, 6_500_000, '这是一句。'),
   ] });
   assert.deepEqual(result.suggestions.map(s => s.kind), ['filler', 'pause', 'repeat']);
+  assert.deepEqual(result.suggestions.map(s => s.reason), ['口头禅「嗯」', '长停顿 3.0 秒', '重复句「这是一句」']);
   assert.deepEqual(result.plan.deleted, []);
+});
+
+test('三类建议原因可解释且保留时标边界安全', () => {
+  const result = calculate({ spans: [
+    span('s1', 2_000_000, 3_000_000, '那个'),
+    span('s2', 5_500_000, 6_500_000, '我们开始吧！'),
+    span('s3', 6_600_000, 7_600_000, '我们开始吧。'),
+  ] });
+  const pause = result.suggestions.find(s => s.kind === 'pause');
+  assert.equal(pause.reason, '长停顿 2.0 秒');
+  assert.equal(pause.start_us, 250_000);
+  assert.equal(pause.end_us, 1_750_000);
+
+  const filler = result.suggestions.find(s => s.kind === 'filler');
+  assert.equal(filler.span_id, 's1');
+  assert.equal(filler.reason, '口头禅「那个」');
+
+  const repeat = result.suggestions.find(s => s.kind === 'repeat');
+  assert.equal(repeat.span_id, 's3');
+  assert.equal(repeat.reason, '重复句「我们开始吧」');
 });
 
 test('SRT 适配器识别 UTF-8 BOM、CRLF、边界误差和坏时间码', () => {

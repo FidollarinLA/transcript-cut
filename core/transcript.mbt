@@ -81,21 +81,32 @@ pub fn serialize_srt(captions : Array[Span]) -> String {
 }
 
 ///|
+/// Formats microsecond durations into seconds with one decimal place.
+fn format_decimal_seconds(us : Int64) -> String {
+  let tenths = (us + 50000L) / 100000L
+  let sec = tenths / 10L
+  let frac = tenths % 10L
+  "\{sec}.\{frac}"
+}
+
+///|
 /// Detects editing suggestions across transcript spans:
-/// - "filler": Chinese and English filler words / modal particles
-/// - "repeat": consecutive identical phrases
-/// - "pause": silence gaps >= 1.8 seconds between spans
+/// - "filler": Chinese and English filler words / modal particles with reason "口头禅「...」"
+/// - "repeat": consecutive identical phrases with reason "重复句「...」"
+/// - "pause": silence gaps >= 1.8 seconds between spans with reason "长停顿 X.X 秒"
 pub fn suggest(spans : Array[Span]) -> Array[Suggestion] {
   let suggestions = []
   let mut previous_text = ""
   let mut covered_until = 0L
   for span in spans {
     if span.start_us - covered_until >= 1800000L {
+      let gap_us = span.start_us - covered_until
       suggestions.push({
         kind: "pause",
         span_id: span.id,
         start_us: covered_until + 250000L,
         end_us: span.start_us - 250000L,
+        reason: "长停顿 \{format_decimal_seconds(gap_us)} 秒",
       })
     }
     let clean = span.text.trim().trim(chars="。.!！?？、,，").to_owned()
@@ -133,11 +144,17 @@ pub fn suggest(spans : Array[Span]) -> Array[Suggestion] {
       _ => ""
     }
     if kind != "" {
+      let reason = match kind {
+        "filler" => "口头禅「\{clean}」"
+        "repeat" => "重复句「\{clean}」"
+        _ => ""
+      }
       suggestions.push({
         kind,
         span_id: span.id,
         start_us: span.start_us,
         end_us: span.end_us,
+        reason,
       })
     }
     if span.end_us > covered_until {

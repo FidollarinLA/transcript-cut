@@ -67,10 +67,13 @@ test "suggest detects expanded filler words, repeats, and long pauses" {
   let repeats = result.suggestions.filter(fn(s) { s.kind == "repeat" })
   let pauses = result.suggestions.filter(fn(s) { s.kind == "pause" })
   assert_true(fillers.length() >= 9)
+  assert_eq(fillers[0].reason, "口头禅「嗯」")
   assert_eq(repeats.length(), 1)
   assert_eq(repeats[0].span_id, "s12")
+  assert_eq(repeats[0].reason, "重复句「正常句子」")
   assert_eq(pauses.length(), 1)
   assert_eq(pauses[0].span_id, "s13")
+  assert_eq(pauses[0].reason, "长停顿 2.8 秒")
 }
 
 ///|
@@ -400,22 +403,29 @@ test "suggestion rules detect fillers with punctuation, repeats, and silence pau
   // Fillers detected
   assert_eq(fillers.length(), 4)
   assert_eq(fillers[0].span_id, "s1")
+  assert_eq(fillers[0].reason, "口头禅「那个」")
   assert_eq(fillers[1].span_id, "s2")
+  assert_eq(fillers[1].reason, "口头禅「对」")
   assert_eq(fillers[2].span_id, "s3")
+  assert_eq(fillers[2].reason, "口头禅「然后」")
   assert_eq(fillers[3].span_id, "s4")
+  assert_eq(fillers[3].reason, "口头禅「you know」")
 
   // Repeat detected ignoring punctuation differences
   assert_eq(repeats.length(), 1)
   assert_eq(repeats[0].span_id, "s7")
+  assert_eq(repeats[0].reason, "重复句「重复的一句话」")
 
   // Pauses detected: initial gap (0 to 2s) and gap between s7 and s8 (7s to 9s)
   assert_eq(pauses.length(), 2)
   assert_eq(pauses[0].span_id, "s1")
   assert_eq(pauses[0].start_us, 250000L)
   assert_eq(pauses[0].end_us, 1750000L)
+  assert_eq(pauses[0].reason, "长停顿 2.0 秒")
   assert_eq(pauses[1].span_id, "s8")
   assert_eq(pauses[1].start_us, 7250000L)
   assert_eq(pauses[1].end_us, 8750000L)
+  assert_eq(pauses[1].reason, "长停顿 2.0 秒")
 }
 
 ///|
@@ -562,4 +572,55 @@ test "dispatch parses valid JSON and gracefully reports errors" {
     #|{"duration_us":"-1000","spans":[],"history":{"operations":[],"cursor":0},"action":"plan"}
   let err_out = @core.dispatch(err_in)
   assert_true(err_out.contains("视频时长超出支持范围"))
+}
+
+///|
+test "suggestion struct methods, json roundtrip, and explainable reasons" {
+  // Suggestion helper methods
+  let sug : @core.Suggestion = {
+    kind: "pause",
+    span_id: "s1",
+    start_us: 250000L,
+    end_us: 1750000L,
+    reason: "长停顿 2.0 秒",
+  }
+  assert_eq(sug.duration(), 1500000L)
+  assert_true(sug.contains(250000L))
+  assert_true(sug.contains(1749999L))
+  assert_false(sug.contains(1750000L))
+  assert_false(sug.contains(0L))
+  assert_eq(sug.to_interval().start_us, 250000L)
+  assert_eq(sug.to_interval().end_us, 1750000L)
+  assert_eq(sug.explain(), "长停顿 2.0 秒")
+
+  // JSON roundtrip
+  let json_sug = @json.to_json(sug)
+  let decoded : @core.Suggestion = @json.from_json(json_sug)
+  assert_eq(decoded.kind, "pause")
+  assert_eq(decoded.span_id, "s1")
+  assert_eq(decoded.start_us, 250000L)
+  assert_eq(decoded.end_us, 1750000L)
+  assert_eq(decoded.reason, "长停顿 2.0 秒")
+
+  // Silence pause boundary: 1.8s threshold
+  // Case A: exactly 1800000L (1.8s) gap -> pause suggestion generated with 1.8s
+  let spans_exact : Array[@core.Span] = [
+    { id: "p1", start_us: 1800000L, end_us: 3000000L, text: "句一", },
+  ]
+  let sugs_exact = @core.suggest(spans_exact)
+  assert_eq(sugs_exact.length(), 1)
+  assert_eq(sugs_exact[0].kind, "pause")
+  assert_eq(sugs_exact[0].reason, "长停顿 1.8 秒")
+  assert_eq(sugs_exact[0].start_us, 250000L)
+  assert_eq(sugs_exact[0].end_us, 1550000L)
+
+  // Case B: 1799999L gap (< 1.8s) -> no pause suggestion
+  let spans_below : Array[@core.Span] = [
+    { id: "p2", start_us: 1799999L, end_us: 3000000L, text: "句一", },
+  ]
+  let sugs_below = @core.suggest(spans_below)
+  assert_eq(sugs_below.length(), 0)
+
+  // Empty spans return empty suggestions
+  assert_eq(@core.suggest([]).length(), 0)
 }

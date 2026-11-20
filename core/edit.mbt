@@ -198,16 +198,44 @@ pub fn Segment::to_interval(self : Segment) -> Interval {
 }
 
 ///|
-#derive(ToJson)
+#derive(ToJson, @json.FromJson)
 pub(all) struct Suggestion {
   kind : String
   span_id : String
   start_us : Int64
   end_us : Int64
+  reason : String
 }
 
 ///|
 pub extend Suggestion with ToJson::{to_json}
+
+///|
+pub extend Suggestion with @json.FromJson::{from_json}
+
+///|
+/// Returns the duration of the suggestion interval in microseconds.
+pub fn Suggestion::duration(self : Suggestion) -> Int64 {
+  self.end_us - self.start_us
+}
+
+///|
+/// Checks whether a source timestamp falls within the suggestion interval [start_us, end_us).
+pub fn Suggestion::contains(self : Suggestion, timestamp_us : Int64) -> Bool {
+  self.start_us <= timestamp_us && timestamp_us < self.end_us
+}
+
+///|
+/// Converts the suggestion into a source interval.
+pub fn Suggestion::to_interval(self : Suggestion) -> Interval {
+  { start_us: self.start_us, end_us: self.end_us, }
+}
+
+///|
+/// Returns the rationale explaining why this edit suggestion was generated.
+pub fn Suggestion::explain(self : Suggestion) -> String {
+  self.reason
+}
 
 ///|
 #derive(ToJson)

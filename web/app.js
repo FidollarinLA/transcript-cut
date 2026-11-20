@@ -170,11 +170,16 @@ function render() {
   el('suggestion-count').textContent = available.length ? `${available.length} 个待复听` : '';
   if (!available.length) suggestions.append(element('p', 'empty-copy', spans.length ? '当前没有待复听的建议。' : '载入转写稿后可查看建议。'));
   for (const s of available) {
-    const label = { filler: '口头禅', repeat: '重复句', pause: '长停顿' }[s.kind];
+    const fallback = { filler: '口头禅', repeat: '重复句', pause: '长停顿' }[s.kind] || '建议';
+    const label = s.reason || fallback;
     const button = element('button', '', `${label} · ${time(s.start_us)}`);
     button.type = 'button';
+    button.title = `${label}（${time(s.start_us)} – ${time(s.end_us)}，点击复听并选定）`;
     button.addEventListener('click', () => {
-      state.selection = { span: s.kind === 'pause' ? null : spans.find(span => span.id === s.span_id), label };
+      state.selection = {
+        span: s.kind === 'pause' ? null : spans.find(span => span.id === s.span_id),
+        label,
+      };
       showSelection(s.start_us, s.end_us);
       listen(s.start_us, s.end_us);
     });

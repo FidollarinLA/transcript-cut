@@ -123,13 +123,19 @@ pub fn Span::duration(Self) -> Int64
 pub fn Span::from_json(@json.Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
 pub fn Span::to_json(Self) -> @json.Json
 
-#derive(@json.ToJson)
+#derive(@json.FromJson, @json.ToJson)
 pub(all) struct Suggestion {
   kind : String
   span_id : String
   start_us : Int64
   end_us : Int64
+  reason : String
 }
+pub fn Suggestion::contains(Self, Int64) -> Bool
+pub fn Suggestion::duration(Self) -> Int64
+pub fn Suggestion::explain(Self) -> String
+pub fn Suggestion::from_json(@json.Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
+pub fn Suggestion::to_interval(Self) -> Interval
 pub fn Suggestion::to_json(Self) -> @json.Json
 
 // Type aliases

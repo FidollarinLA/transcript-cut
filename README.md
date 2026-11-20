@@ -131,7 +131,8 @@ npm test
 - **字幕重排与智能建议**：
   - `remap_captions(spans, kept, corrections)`：将字幕映射到保留段，自动标记跨切点的需复核句段，应用修改文字并剔除空字幕。
   - `serialize_srt(captions)`：将字幕数组格式化为标准 SRT 字符串。
-  - `suggest(spans)`：自动探测口头禅（中英文常见语气助词）、重复句（标点归一化比对）与静音长停顿（>= 1.8s）候选区间。
+  - `suggest(spans)`：自动探测口头禅（中英文语气助词）、重复句（标点归一化比对）与静音长停顿（>= 1.8s）候选区间，并输出可解释的建议原因（`reason`）。
+  - `Suggestion`：包含 `kind`、`span_id`、`start_us`、`end_us` 与 `reason`（例如 `口头禅「那个」`、`重复句「...」`、`长停顿 2.0 秒`），支持 `duration()`、`contains(ts)`、`to_interval()` 与 `explain()`。
 - 导出的结构体（`Interval`、`Segment`、`Suggestion`、`Plan`、`EditResult` 等）均使用 `pub(all)`，便于外部包直接解构与访问字段。
 
 ## Mooncakes 模块发布准备
