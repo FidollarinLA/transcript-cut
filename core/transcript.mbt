@@ -1,5 +1,9 @@
 ///|
-fn remap_captions(
+/// Remaps captions onto retained segments, applying any text corrections.
+/// Captions that are fully retained within a single kept segment are shifted to the output timeline.
+/// Captions that are partially cut or split across segments are flagged in the second return value (partial review).
+/// Captions entirely within deleted regions are dropped.
+pub fn remap_captions(
   spans : Array[Span],
   kept : Array[Segment],
   corrections : Map[String, String],
@@ -56,7 +60,8 @@ fn srt_time(ms : Int64) -> String {
 }
 
 ///|
-fn serialize_srt(captions : Array[Span]) -> String {
+/// Serializes remapped captions into standard SRT subtitle format.
+pub fn serialize_srt(captions : Array[Span]) -> String {
   let out = StringBuilder()
   let mut index = 1
   for caption in captions {
@@ -76,7 +81,11 @@ fn serialize_srt(captions : Array[Span]) -> String {
 }
 
 ///|
-fn suggest(spans : Array[Span]) -> Array[Suggestion] {
+/// Detects editing suggestions across transcript spans:
+/// - "filler": Chinese and English filler words / modal particles
+/// - "repeat": consecutive identical phrases
+/// - "pause": silence gaps >= 1.8 seconds between spans
+pub fn suggest(spans : Array[Span]) -> Array[Suggestion] {
   let suggestions = []
   let mut previous_text = ""
   let mut covered_until = 0L

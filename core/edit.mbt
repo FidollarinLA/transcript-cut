@@ -9,6 +9,30 @@ pub(all) struct Interval {
 pub extend Interval with ToJson::{to_json}
 
 ///|
+/// Returns the duration of the interval in microseconds.
+pub fn Interval::duration(self : Interval) -> Int64 {
+  self.end_us - self.start_us
+}
+
+///|
+/// Checks whether a timestamp falls within the half-open interval [start_us, end_us).
+pub fn Interval::contains(self : Interval, timestamp_us : Int64) -> Bool {
+  self.start_us <= timestamp_us && timestamp_us < self.end_us
+}
+
+///|
+/// Checks whether this interval completely covers another interval.
+pub fn Interval::covers(self : Interval, other : Interval) -> Bool {
+  self.start_us <= other.start_us && other.end_us <= self.end_us
+}
+
+///|
+/// Checks whether this interval overlaps with another interval.
+pub fn Interval::overlaps(self : Interval, other : Interval) -> Bool {
+  self.start_us < other.end_us && other.start_us < self.end_us
+}
+
+///|
 #derive(ToJson, @json.FromJson)
 pub(all) struct Span {
   id : String
@@ -22,6 +46,18 @@ pub extend Span with ToJson::{to_json}
 
 ///|
 pub extend Span with @json.FromJson::{from_json}
+
+///|
+/// Returns the duration of the span in microseconds.
+pub fn Span::duration(self : Span) -> Int64 {
+  self.end_us - self.start_us
+}
+
+///|
+/// Checks whether a source timestamp falls within this span [start_us, end_us).
+pub fn Span::contains(self : Span, timestamp_us : Int64) -> Bool {
+  self.start_us <= timestamp_us && timestamp_us < self.end_us
+}
 
 ///|
 #derive(ToJson, @json.FromJson)
@@ -53,6 +89,67 @@ pub extend History with ToJson::{to_json}
 pub extend History with @json.FromJson::{from_json}
 
 ///|
+/// Creates a fresh edit history with no operations.
+pub fn History::new() -> History {
+  { operations: [], cursor: 0, }
+}
+
+///|
+/// Checks whether undo is possible.
+pub fn History::can_undo(self : History) -> Bool {
+  self.cursor > 0
+}
+
+///|
+/// Checks whether redo is possible.
+pub fn History::can_redo(self : History) -> Bool {
+  self.cursor < self.operations.length()
+}
+
+///|
+/// Steps backwards one operation in history.
+pub fn History::undo(self : History) -> History {
+  {
+    operations: self.operations,
+    cursor: if self.cursor > 0 {
+      self.cursor - 1
+    } else {
+      0
+    },
+  }
+}
+
+///|
+/// Steps forward one operation in history.
+pub fn History::redo(self : History) -> History {
+  {
+    operations: self.operations,
+    cursor: if self.cursor < self.operations.length() {
+      self.cursor + 1
+    } else {
+      self.cursor
+    },
+  }
+}
+
+///|
+/// Applies a new operation at current cursor, truncating any redo tail.
+pub fn History::apply(
+  self : History,
+  operation : Operation,
+) -> History raise Invalid {
+  if self.cursor >= 2000 {
+    raise Invalid("编辑记录达到 2000 条上限")
+  }
+  let next = Array(capacity=self.cursor + 1)
+  for i in 0..<self.cursor {
+    next.push(self.operations[i])
+  }
+  next.push(operation)
+  { operations: next, cursor: next.length(), }
+}
+
+///|
 #derive(@json.FromJson)
 pub(all) struct Request {
   duration_us : Int64
@@ -75,6 +172,30 @@ pub(all) struct Segment {
 
 ///|
 pub extend Segment with ToJson::{to_json}
+
+///|
+/// Returns the source duration of the segment in microseconds.
+pub fn Segment::duration(self : Segment) -> Int64 {
+  self.end_us - self.start_us
+}
+
+///|
+/// Checks whether a source timestamp falls within the segment [start_us, end_us).
+pub fn Segment::contains(self : Segment, source_us : Int64) -> Bool {
+  self.start_us <= source_us && source_us < self.end_us
+}
+
+///|
+/// Returns the exclusive output end timestamp in microseconds.
+pub fn Segment::output_end_us(self : Segment) -> Int64 {
+  self.output_start_us + (self.end_us - self.start_us)
+}
+
+///|
+/// Converts a retained segment into a source interval.
+pub fn Segment::to_interval(self : Segment) -> Interval {
+  { start_us: self.start_us, end_us: self.end_us, }
+}
 
 ///|
 #derive(ToJson)
@@ -102,6 +223,67 @@ pub(all) struct Plan {
 
 ///|
 pub extend Plan with ToJson::{to_json}
+
+///|
+/// Checks whether the plan has no retained content.
+pub fn Plan::is_empty(self : Plan) -> Bool {
+  self.kept.length() == 0
+}
+
+///|
+/// Returns the total deleted duration in microseconds across all cuts.
+pub fn Plan::total_deleted_us(self : Plan) -> Int64 {
+  let mut total = 0L
+  for cut in self.deleted {
+    total += cut.end_us - cut.start_us
+  }
+  total
+}
+
+///|
+/// Checks whether a source timestamp falls within any deleted cut [start_us, end_us).
+pub fn Plan::is_deleted(self : Plan, source_us : Int64) -> Bool {
+  for cut in self.deleted {
+    if cut.start_us <= source_us && source_us < cut.end_us {
+      return true
+    }
+  }
+  false
+}
+
+///|
+/// Checks whether an interval [start_us, end_us) is completely covered by deleted cuts.
+pub fn Plan::is_covered(self : Plan, start_us : Int64, end_us : Int64) -> Bool {
+  for cut in self.deleted {
+    if cut.start_us <= start_us && end_us <= cut.end_us {
+      return true
+    }
+  }
+  false
+}
+
+///|
+/// Validates export constraints: must have at least one kept segment,
+/// at most max_segments, and every segment must be at least min_segment_duration_us long.
+pub fn Plan::validate_output(
+  self : Plan,
+  min_segment_duration_us : Int64,
+  max_segments : Int32,
+) -> Unit raise Invalid {
+  if self.kept.length() == 0 {
+    raise Invalid("成片没有保留片段")
+  }
+  if self.kept.length() > max_segments {
+    raise Invalid("当前版本最多导出 \{max_segments} 个保留片段")
+  }
+  for segment in self.kept {
+    if segment.end_us - segment.start_us < min_segment_duration_us {
+      raise Invalid(
+        "有保留片段短于平均一帧，请调整切点后导出",
+      )
+    }
+  }
+}
 
 ///|
 pub suberror Invalid {
@@ -188,32 +370,13 @@ fn validate(request : Request) -> Map[String, Span] raise Invalid {
 
 ///|
 fn update_history(request : Request) -> History raise Invalid {
-  let { operations, cursor, } = request.history
   match request.action {
     "plan" => request.history
-    "undo" => { operations, cursor: if cursor > 0 { cursor - 1 } else { 0 }, }
-    "redo" =>
-      {
-        operations,
-        cursor: if cursor < operations.length() {
-          cursor + 1
-        } else {
-          cursor
-        },
-      }
+    "undo" => request.history.undo()
+    "redo" => request.history.redo()
     "apply" =>
       match request.operation {
-        Some(operation) => {
-          if cursor >= 2000 {
-            raise Invalid("编辑记录达到 2000 条上限")
-          }
-          let next = Array(capacity=cursor + 1)
-          for i in 0..<cursor {
-            next.push(operations[i])
-          }
-          next.push(operation)
-          { operations: next, cursor: next.length(), }
-        }
+        Some(operation) => request.history.apply(operation)
         None => raise Invalid("缺少编辑操作")
       }
     _ => raise Invalid("未知编辑动作")
@@ -221,7 +384,8 @@ fn update_history(request : Request) -> History raise Invalid {
 }
 
 ///|
-fn merged_intervals(cuts : Array[Interval]) -> Array[Interval] {
+/// Merges overlapping and adjacent half-open intervals into a sorted, disjoint array.
+pub fn merge_intervals(cuts : Array[Interval]) -> Array[Interval] {
   cuts.sort_by((a, b) => a.start_us.compare(b.start_us))
   let merged : Array[Interval] = []
   for cut in cuts {
@@ -239,6 +403,11 @@ fn merged_intervals(cuts : Array[Interval]) -> Array[Interval] {
     }
   }
   merged
+}
+
+///|
+fn merged_intervals(cuts : Array[Interval]) -> Array[Interval] {
+  merge_intervals(cuts)
 }
 
 ///|
@@ -322,6 +491,16 @@ pub fn execute(request : Request) -> EditResult raise Invalid {
   let history = update_history(request)
   let plan = build_plan(request, spans, history)
   { history, plan, suggestions: suggest(request.spans), }
+}
+
+///|
+/// Calculates an edit plan without modifying the history.
+pub fn plan(
+  duration_us : Int64,
+  spans : Array[Span],
+  history : History,
+) -> EditResult raise Invalid {
+  execute({ duration_us, spans, history, action: "plan", operation: None, })
 }
 
 ///|
