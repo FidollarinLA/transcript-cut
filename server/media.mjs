@@ -35,6 +35,14 @@ export function run(program, args, { cwd, timeout = 120_000 } = {}) {
   });
 }
 
+function parseRotation(stream) {
+  const side = stream.side_data_list?.find(s => s.rotation !== undefined || s.side_data_type === 'Display Matrix');
+  const raw = side?.rotation ?? stream.tags?.rotate ?? stream.tags?.ROTATION ?? 0;
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return 0;
+  return ((Math.round(num) % 360) + 360) % 360;
+}
+
 export async function probe(file) {
   const { format, streams } = JSON.parse(await run(ffprobe, [
     '-v', 'error', '-show_format', '-show_streams', '-of', 'json', file,
@@ -45,9 +53,19 @@ export async function probe(file) {
     || video[0].codec_name !== 'h264' || audio[0].codec_name !== 'aac') {
     throw new Error('请选择一条 H.264 视频轨和一条 AAC 音频轨的 MP4');
   }
-  const [width, height] = [video[0].width, video[0].height];
-  const [n, d] = video[0].avg_frame_rate.split('/').map(Number);
-  const fps = n / d;
+  const coded_width = video[0].width;
+  const coded_height = video[0].height;
+  const rotation = parseRotation(video[0]);
+  const isQuarterTurn = rotation === 90 || rotation === 270;
+  const width = isQuarterTurn ? coded_height : coded_width;
+  const height = isQuarterTurn ? coded_width : coded_height;
+  const parseRate = str => {
+    if (!str || typeof str !== 'string') return null;
+    const [n, d] = str.split('/').map(Number);
+    const rate = n / d;
+    return Number.isFinite(rate) && rate > 0 ? rate : null;
+  };
+  const fps = parseRate(video[0].avg_frame_rate) ?? parseRate(video[0].r_frame_rate) ?? 0;
   const duration_us = Math.round(Number(format.duration) * second);
   if (!Number.isSafeInteger(duration_us) || duration_us <= 0 || duration_us > 3_600 * second
     || !Number.isFinite(fps) || fps <= 0 || fps > 60 || width % 2 || height % 2) {
@@ -57,7 +75,22 @@ export async function probe(file) {
     !Number.isFinite(Number(s.start_time)) || Math.abs(Number(s.start_time)) > 0.001)) {
     throw new Error('该视频的轨道起点不是 0 秒，请先转码后导入');
   }
-  return { width, height, fps, duration_us, video_index: video[0].index, audio_index: audio[0].index };
+  const trackDuration = stream => {
+    const value = Math.round(Number(stream.duration) * second);
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
+  };
+  return {
+    width, height,
+    displayed_width: width,
+    displayed_height: height,
+    coded_width,
+    coded_height,
+    rotation,
+    fps, duration_us,
+    video_index: video[0].index, audio_index: audio[0].index,
+    video_duration_us: trackDuration(video[0]),
+    audio_duration_us: trackDuration(audio[0]),
+  };
 }
 
 function timestamp(hours, minutes, seconds, millis) {
@@ -149,19 +182,22 @@ export function validateVideoFrames(segments, frameTimes) {
 
 export async function exportVideo(file, plan, target, metadata) {
   const filters = [
-    videoFilter(plan.kept, metadata.video_index),
+    videoFilter(plan.kept, metadata.video_index, plan.output_duration_us),
     ...audioFilters(plan.kept, metadata.audio_index, plan.output_duration_us),
   ];
+  // Re-encode without -noautorotate so FFmpeg bakes display-matrix rotation into pixels
+  // and drops the leftover matrix. Adding a second transpose would rotate twice.
   await run(ffmpeg, [
     '-hide_banner', '-loglevel', 'error', '-n', '-i', file,
     '-filter_complex', filters.join(';'),
     '-map', '[outv]', '-map', '[outa]',
     '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-c:a', 'aac',
+    '-metadata:s:v:0', 'rotate=0',
     '-enc_time_base:v', '1:1000000', '-fps_mode', 'vfr', '-movflags', '+faststart', target,
   ], { timeout: 45 * 60_000 });
 }
 
-function videoFilter(segments, index) {
+function videoFilter(segments, index, duration) {
   const { start_us } = segments[0];
   const escape = expression => expression.replaceAll(',', '\\,');
   const keep = segments.map(s => `between(pts,${s.start_us},${s.end_us - 1})`).join('+');
@@ -173,7 +209,10 @@ function videoFilter(segments, index) {
   }
   // Anchor every frame to the plan so encoder rounding does not accumulate at each cut.
   const pts = `${mapped}-(STARTPTS-${start_us})`;
-  return `[0:${index}]settb=AVTB,select=${escape(keep)},setpts=${escape(pts)}[outv]`;
+  const length = (duration / second).toFixed(6);
+  // Hold the last source frame if the video track is shorter than the plan (audio-longer inputs).
+  // tpad must run before the plan setpts: after setpts, stop=-1 hangs on FFmpeg 7.
+  return `[0:${index}]settb=AVTB,select=${escape(keep)},tpad=stop_mode=clone:stop=-1,setpts=${escape(pts)},trim=duration=${length},setpts=PTS-STARTPTS[outv]`;
 }
 
 function audioFilters(segments, index, duration) {

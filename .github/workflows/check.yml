@@ -25,6 +25,8 @@ jobs:
           moon version --all
           moon fmt --check
           moon check --target js --deny-warn
+          moon check --target wasm-gc --deny-warn
           moon test --target js
+          moon test --target wasm-gc
       - name: Build and run media tests
         run: npm test

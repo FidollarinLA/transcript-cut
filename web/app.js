@@ -1,5 +1,7 @@
 import { dispatch } from '/core.js';
 import { calculateEdit } from '/edit-core.js';
+import { appendTrackDurationTip, time } from '/status-tip.js';
+import { matchShortcut } from '/shortcuts.js';
 
 const el = id => document.getElementById(id);
 const player = el('player');
@@ -96,7 +98,7 @@ function allowReplacingTranscript() {
   return !state.history.cursor || window.confirm('替换转写稿会清空当前编辑，继续吗？');
 }
 
-function setAsset(asset, name) {
+function setAsset(asset, name, message) {
   state.asset = asset;
   el('filename').textContent = name;
   el('empty-video').hidden = true;
@@ -106,14 +108,8 @@ function setAsset(asset, name) {
   el('preview').checked = false;
   state.listenUntil = null;
   replaceSpans(asset.spans);
+  notice(appendTrackDurationTip(message, asset.video_duration_us, asset.audio_duration_us));
 }
-
-const time = us => {
-  const ms = Math.round(us / 1000);
-  const minutes = String(Math.floor(ms / 60000)).padStart(2, '0');
-  const seconds = String(Math.floor(ms / 1000) % 60).padStart(2, '0');
-  return `${minutes}:${seconds}.${String(ms % 1000).padStart(3, '0')}`;
-};
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -156,7 +152,13 @@ function render() {
   for (const part of parts.sort((a, b) => a.start_us - b.start_us)) {
     const bar = element('span', part.removed ? 'removed' : '', '');
     bar.style.flexGrow = String(part.end_us - part.start_us);
-    bar.title = `${part.removed ? '剪除' : '保留'} ${time(part.start_us)} – ${time(part.end_us)}`;
+    bar.title = `${part.removed ? '剪除' : '保留'} ${time(part.start_us)} – ${time(part.end_us)}（点击跳转）`;
+    bar.onclick = () => {
+      if (state.asset) {
+        state.listenUntil = null;
+        player.currentTime = part.start_us / unit;
+      }
+    };
     timeline.append(bar);
   }
   el('duration').textContent = time(asset.duration_us);
@@ -168,11 +170,16 @@ function render() {
   el('suggestion-count').textContent = available.length ? `${available.length} 个待复听` : '';
   if (!available.length) suggestions.append(element('p', 'empty-copy', spans.length ? '当前没有待复听的建议。' : '载入转写稿后可查看建议。'));
   for (const s of available) {
-    const label = { filler: '口头禅', repeat: '重复句', pause: '长停顿' }[s.kind];
+    const fallback = { filler: '口头禅', repeat: '重复句', pause: '长停顿' }[s.kind] || '建议';
+    const label = s.reason || fallback;
     const button = element('button', '', `${label} · ${time(s.start_us)}`);
     button.type = 'button';
+    button.title = `${label}（${time(s.start_us)} – ${time(s.end_us)}，点击复听并选定）`;
     button.addEventListener('click', () => {
-      state.selection = { span: s.kind === 'pause' ? null : spans.find(span => span.id === s.span_id), label };
+      state.selection = {
+        span: s.kind === 'pause' ? null : spans.find(span => span.id === s.span_id),
+        label,
+      };
       showSelection(s.start_us, s.end_us);
       listen(s.start_us, s.end_us);
     });
@@ -262,9 +269,10 @@ function updatePlayback() {
   }
 }
 
-async function waitForJob(id) {
+async function waitForJob(id, onProgress) {
   for (;;) {
     const job = await request(`/api/jobs/${id}`);
+    if (job.progress !== undefined && onProgress) onProgress(job.progress);
     if (job.state === 'done') return job.result;
     if (job.state === 'failed') throw new Error(job.error);
     await new Promise(resolve => setTimeout(resolve, 450));
@@ -281,16 +289,14 @@ function apply(action, operation) {
 }
 
 el('demo').onclick = () => perform('正在打开样例…', async () => {
-  setAsset(await post('/api/demo'), '样例 · 12 秒测试片');
-  notice('样例已就绪。请选择一行，复听后剪掉，再导出。');
+  setAsset(await post('/api/demo'), '样例 · 12 秒测试片', '样例已就绪。请选择一行，复听后剪掉，再导出。');
 });
 el('video-file').onchange = event => {
   const file = event.target.files[0];
   event.target.value = '';
   if (!file) return;
   void perform('正在读取视频…', async () => {
-    setAsset(await request('/api/assets', { method: 'POST', body: file }), file.name);
-    notice('视频已导入。可以导入同源 SRT 或自动转写。');
+    setAsset(await request('/api/assets', { method: 'POST', body: file }), file.name, '视频已导入。可以导入同源 SRT 或自动转写。');
   });
 };
 el('srt-file').onchange = event => {
@@ -349,7 +355,9 @@ el('transcribe').onclick = () => {
   if (!allowReplacingTranscript()) return;
   void perform('Whisper 正在本机转写，可以先看原视频。', async () => {
     const { id } = await post(assetPath('transcribe'), { language: el('language').value });
-    const { spans } = await waitForJob(id);
+    const { spans } = await waitForJob(id, progress => {
+      notice(`Whisper 正在本机转写（${Math.round(progress * 100)}%），可以先看原视频。`);
+    });
     replaceSpans(spans);
     notice(`转写完成，共 ${spans.length} 个句段。请复听后确认切点。`);
   });
@@ -385,6 +393,99 @@ if (player.requestVideoFrameCallback) {
   player.requestVideoFrameCallback(onFrame);
 }
 
+window.addEventListener('keydown', event => {
+  const isDialogOpen = el('correction').open;
+  const action = matchShortcut(event, { isDialogOpen });
+  if (!action) return;
+
+  switch (action) {
+    case 'play-pause': {
+      if (state.asset) {
+        event.preventDefault();
+        state.listenUntil = null;
+        if (player.paused) {
+          player.play().catch(error => notice(error.message, true));
+        } else {
+          player.pause();
+        }
+      }
+      break;
+    }
+    case 'undo': {
+      if (state.asset && !state.busy && state.history.cursor > 0) {
+        event.preventDefault();
+        apply('undo');
+      }
+      break;
+    }
+    case 'redo': {
+      if (state.asset && !state.busy && state.history.cursor < state.history.operations.length) {
+        event.preventDefault();
+        apply('redo');
+      }
+      break;
+    }
+    case 'step-back': {
+      if (state.asset) {
+        event.preventDefault();
+        state.listenUntil = null;
+        player.currentTime = Math.max(0, player.currentTime - 1);
+      }
+      break;
+    }
+    case 'step-forward': {
+      if (state.asset) {
+        event.preventDefault();
+        state.listenUntil = null;
+        const maxTime = state.asset.duration_us / unit;
+        player.currentTime = Math.min(maxTime, player.currentTime + 1);
+      }
+      break;
+    }
+    case 'cut': {
+      if (state.selection && !state.busy) {
+        event.preventDefault();
+        el('remove').click();
+      }
+      break;
+    }
+    case 'select-prev':
+    case 'extend-prev':
+    case 'select-next':
+    case 'extend-next': {
+      if (state.spans.length && !state.busy) {
+        event.preventDefault();
+        const extend = action.startsWith('extend');
+        const isNext = action.endsWith('next');
+        let targetIndex = 0;
+        if (state.selection) {
+          const currentAnchor = state.selection.span?.id || state.selection.anchor;
+          const currentIndex = state.spans.findIndex(item => item.id === currentAnchor);
+          targetIndex = isNext
+            ? Math.min(state.spans.length - 1, currentIndex + 1)
+            : Math.max(0, currentIndex - 1);
+        } else {
+          targetIndex = isNext ? 0 : state.spans.length - 1;
+        }
+        const targetSpan = state.spans[targetIndex];
+        if (targetSpan) {
+          selectSpan(targetSpan, extend);
+          rows.get(targetSpan.id)?.button?.scrollIntoView({ block: 'nearest' });
+        }
+      }
+      break;
+    }
+    case 'escape': {
+      if (state.selection) {
+        event.preventDefault();
+        state.selection = null;
+        showSelection();
+      }
+      break;
+    }
+  }
+});
+
 el('export').onclick = async () => {
   const assetId = state.asset.id;
   const revision = state.revision;
@@ -394,7 +495,9 @@ el('export').onclick = async () => {
   notice('正在导出，仍可继续编辑。');
   try {
     const { id } = await post(path, { spans: state.spans, history: state.history });
-    const finished = await waitForJob(id);
+    const finished = await waitForJob(id, progress => {
+      notice(`正在导出（${Math.round(progress * 100)}%），仍可继续编辑。`);
+    });
     if (state.asset.id !== assetId) return;
     const label = element('span', '', `${revision === state.revision ? '成片' : '上一版成片'} · ${time(finished.duration_us)}`);
     label.id = 'export-version';

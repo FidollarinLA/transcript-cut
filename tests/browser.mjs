@@ -42,6 +42,18 @@ try {
   await page.getByRole('button', { name: '重做' }).click();
   assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
 
+  // 验证时间轴切段点击跳转定位
+  const timelineBars = page.locator('#timeline span');
+  assert((await timelineBars.count()) >= 2);
+  await timelineBars.last().click();
+  await page.waitForFunction(() => document.querySelector('#player').currentTime >= 4);
+
+  // 验证键盘快捷键：Ctrl+Z 撤销，Ctrl+Y 重做
+  await page.keyboard.press('Control+z');
+  assert.equal(await page.locator('#output-duration').textContent(), '00:12.000');
+  await page.keyboard.press('Control+y');
+  assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
+
   await page.getByRole('button', { name: /剪好后/ }).click();
   await page.getByRole('button', { name: '修正文字' }).click();
   await page.locator('#correction-text').fill('最后一句字幕已更正。');
@@ -96,7 +108,16 @@ try {
   assert.equal(await page.locator('.row.selected').count(), 2);
   assert.equal(await page.locator('#start').inputValue(), '5.000');
   assert.equal(await page.locator('#end').inputValue(), '7.500');
-  assert.equal(await page.getByRole('button', { name: '修正文字' }).isDisabled(), true);
+
+  // 验证上下键导航选择转写行与 Escape 取消选择
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.row.selected').count(), 0);
+  await page.keyboard.press('ArrowDown');
+  assert.equal(await page.locator('.row.selected').count(), 1);
+  assert(await page.locator('.row').first().evaluate(node => node.classList.contains('selected')));
+  await page.keyboard.press('ArrowDown');
+  assert(await page.locator('.row').nth(1).evaluate(node => node.classList.contains('selected')));
+  assert.equal(await page.getByRole('button', { name: '修正文字' }).isDisabled(), false);
   assert.deepEqual(errors, []);
   if (BROWSER_SCREENSHOT) await page.screenshot({ path: BROWSER_SCREENSHOT, fullPage: true });
 
