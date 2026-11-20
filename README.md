@@ -122,11 +122,21 @@ npm test
   - `Plan::is_empty(self : Plan) -> Bool`：检查剪辑后是否已无任何保留内容。
   - `Plan::is_deleted(self : Plan, source_us : Int64) -> Bool`：检查源微秒点是否落入删除区间。
   - `Plan::is_covered(self : Plan, start_us : Int64, end_us : Int64) -> Bool`：检查特定半开区间是否完全被剪除。
+  - `Plan::is_partial(self : Plan, span_id : String) -> Bool`：检查某句字幕是否被标记为部分切断、需要复核。
+  - `Plan::is_span_covered(self : Plan, span : Span) -> Bool` / `Plan::is_suggestion_covered(self : Plan, suggestion : Suggestion) -> Bool`：检查整句或建议区间是否已完全落入删除区。
+  - `Plan::find_kept_segment(self : Plan, source_us : Int64) -> Segment?` / `Plan::find_kept_segment_at_output(self : Plan, output_us : Int64) -> Segment?`：按源时标或成片时标查找保留段。
+  - `Plan::find_cut(self : Plan, source_us : Int64) -> Interval?`：按源时标查找覆盖该点的删除区间。
+  - `Plan::find_caption(self : Plan, span_id : String) -> Span?` / `Plan::find_caption_at(self : Plan, output_us : Int64) -> Span?`：在重排后的字幕里按 ID 或成片时标查找。
   - `Plan::total_deleted_us(self : Plan) -> Int64`：获取所有删除区间的累计微秒总时长。
   - `Plan::validate_output(self : Plan, min_segment_duration_us : Int64, max_segments : Int32) -> Unit raise Invalid`：严格校验导出计划是否合法（非空、不超过最大段数、段长不低于帧间隔）。
-- **区间与历史操作**：
+  - `Plan::validate_video_frames(self : Plan, frame_times : Array[Int64]) -> Unit raise Invalid` 与顶层 `validate_video_frames(segments, frame_times)`：校验每个保留段至少包含一帧。
+  - `find_span_at(spans, source_us)` / `find_span_by_id(spans, id)`：在源字幕列表中按时标或 ID 查找句段。
+- **区间、操作、分段与历史**：
   - `merge_intervals(cuts : Array[Interval]) -> Array[Interval]`：将重叠、相邻、无序的半开区间合并为有序不相交区间。
-  - `Interval::contains` / `covers` / `overlaps` / `duration`：半开微秒区间的基本集合运算。
+  - `Interval::contains` / `covers` / `overlaps` / `duration` / `intersection` / `adjacent` / `touching_or_overlapping` / `union`：半开微秒区间的集合运算；不相交且不相邻时 `intersection` / `union` 返回 `None`。
+  - `Span::to_interval(self : Span) -> Interval`：取句段的半开时标区间。
+  - `Operation::cut(start_us, end_us)` / `Operation::correct(span_id, text)`：构造剪除或修字操作；`duration()`、`to_interval()`、`is_cut()`、`is_correct()` 用于检查操作。
+  - `Segment::duration` / `contains` / `output_end_us` / `to_interval` / `to_output_interval` / `output_contains` / `source_to_output` / `output_to_source` / `has_frame`：保留段在源时间轴与成片时间轴上的映射和帧存在性检查。
   - `History::new()` / `undo()` / `redo()` / `apply(op)` / `can_undo()` / `can_redo()`：不可变操作历史状态机。
 - **字幕重排与智能建议**：
   - `remap_captions(spans, kept, corrections)`：将字幕映射到保留段，自动标记跨切点的需复核句段，应用修改文字并剔除空字幕。
