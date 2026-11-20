@@ -77,7 +77,7 @@ test('口头禅、重复、停顿均为候选，不更改剪辑计划，并带�
     span('c', 5_500_000, 6_500_000, '这是一句。'),
   ] });
   assert.deepEqual(result.suggestions.map(s => s.kind), ['filler', 'pause', 'repeat']);
-  assert.deepEqual(result.suggestions.map(s => s.reason), ['口头禅「嗯」', '长停顿 3.0 秒', '重复句「这是一句」']);
+  assert.deepEqual(result.suggestions.map(s => s.reason), ['口头禅「嗯」', '「嗯」与「这是一句」之间长停顿 3.0 秒', '重复句「这是一句」']);
   assert.deepEqual(result.plan.deleted, []);
 });
 
@@ -88,7 +88,7 @@ test('三类建议原因可解释且保留时标边界安全', () => {
     span('s3', 6_600_000, 7_600_000, '我们开始吧。'),
   ] });
   const pause = result.suggestions.find(s => s.kind === 'pause');
-  assert.equal(pause.reason, '长停顿 2.0 秒');
+  assert.equal(pause.reason, '片头长停顿 2.0 秒');
   assert.equal(pause.start_us, 250_000);
   assert.equal(pause.end_us, 1_750_000);
 

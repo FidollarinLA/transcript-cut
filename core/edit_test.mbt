@@ -73,7 +73,10 @@ test "suggest detects expanded filler words, repeats, and long pauses" {
   assert_eq(repeats[0].reason, "重复句「正常句子」")
   assert_eq(pauses.length(), 1)
   assert_eq(pauses[0].span_id, "s13")
-  assert_eq(pauses[0].reason, "长停顿 2.8 秒")
+  assert_eq(
+    pauses[0].reason,
+    "「正常句子」与「继续」之间长停顿 2.8 秒",
+  )
 }
 
 ///|
@@ -421,11 +424,14 @@ test "suggestion rules detect fillers with punctuation, repeats, and silence pau
   assert_eq(pauses[0].span_id, "s1")
   assert_eq(pauses[0].start_us, 250000L)
   assert_eq(pauses[0].end_us, 1750000L)
-  assert_eq(pauses[0].reason, "长停顿 2.0 秒")
+  assert_eq(pauses[0].reason, "片头长停顿 2.0 秒")
   assert_eq(pauses[1].span_id, "s8")
   assert_eq(pauses[1].start_us, 7250000L)
   assert_eq(pauses[1].end_us, 8750000L)
-  assert_eq(pauses[1].reason, "长停顿 2.0 秒")
+  assert_eq(
+    pauses[1].reason,
+    "「重复的一句话」与「结尾」之间长停顿 2.0 秒",
+  )
 }
 
 ///|
@@ -610,7 +616,7 @@ test "suggestion struct methods, json roundtrip, and explainable reasons" {
   let sugs_exact = @core.suggest(spans_exact)
   assert_eq(sugs_exact.length(), 1)
   assert_eq(sugs_exact[0].kind, "pause")
-  assert_eq(sugs_exact[0].reason, "长停顿 1.8 秒")
+  assert_eq(sugs_exact[0].reason, "片头长停顿 1.8 秒")
   assert_eq(sugs_exact[0].start_us, 250000L)
   assert_eq(sugs_exact[0].end_us, 1550000L)
 
@@ -623,6 +629,55 @@ test "suggestion struct methods, json roundtrip, and explainable reasons" {
 
   // Empty spans return empty suggestions
   assert_eq(@core.suggest([]).length(), 0)
+}
+
+///|
+test "suggestion reasons name pause context and cover thin boundaries" {
+  // Mid-gap exactly 1.8s, not just a leading silence.
+  let mid = @core.suggest([
+    { id: "a", start_us: 0L, end_us: 1000000L, text: "上一句", },
+    { id: "b", start_us: 2800000L, end_us: 4000000L, text: "下一句", },
+  ])
+  let mid_pauses = mid.filter(fn(s) { s.kind == "pause" })
+  assert_eq(mid_pauses.length(), 1)
+  assert_eq(mid_pauses[0].span_id, "b")
+  assert_eq(mid_pauses[0].start_us, 1250000L)
+  assert_eq(mid_pauses[0].end_us, 2550000L)
+  assert_eq(
+    mid_pauses[0].reason,
+    "「上一句」与「下一句」之间长停顿 1.8 秒",
+  )
+  assert_eq(mid_pauses[0].explain(), mid_pauses[0].reason)
+
+  // Just under the 1.8s mid-gap threshold: no pause suggestion.
+  let below = @core.suggest([
+    { id: "a", start_us: 0L, end_us: 1000000L, text: "上一句", },
+    { id: "b", start_us: 2799999L, end_us: 4000000L, text: "下一句", },
+  ])
+  assert_eq(below.filter(fn(s) { s.kind == "pause" }).length(), 0)
+
+  // Consecutive identical fillers stay fillers, not repeats.
+  let fillers = @core.suggest([
+    { id: "d1", start_us: 0L, end_us: 500000L, text: "对", },
+    { id: "d2", start_us: 500000L, end_us: 1000000L, text: "对", },
+  ])
+  assert_eq(fillers.length(), 2)
+  assert_eq(fillers[0].kind, "filler")
+  assert_eq(fillers[1].kind, "filler")
+  assert_eq(fillers[1].reason, "口头禅「对」")
+
+  // English filler and repeat matching ignores letter case; reasons keep the original wording.
+  let english = @core.suggest([
+    { id: "e1", start_us: 0L, end_us: 500000L, text: "You know.", },
+    { id: "e2", start_us: 600000L, end_us: 1600000L, text: "Hello", },
+    { id: "e3", start_us: 1700000L, end_us: 2700000L, text: "HELLO!", },
+  ])
+  assert_eq(english.length(), 2)
+  assert_eq(english[0].kind, "filler")
+  assert_eq(english[0].reason, "口头禅「You know」")
+  assert_eq(english[1].kind, "repeat")
+  assert_eq(english[1].span_id, "e3")
+  assert_eq(english[1].reason, "重复句「HELLO」")
 }
 
 ///|

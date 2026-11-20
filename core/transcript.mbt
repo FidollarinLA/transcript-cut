@@ -92,25 +92,35 @@ fn format_decimal_seconds(us : Int64) -> String {
 ///|
 /// Detects editing suggestions across transcript spans:
 /// - "filler": Chinese and English filler words / modal particles with reason "口头禅「...」"
-/// - "repeat": consecutive identical phrases with reason "重复句「...」"
-/// - "pause": silence gaps >= 1.8 seconds between spans with reason "长停顿 X.X 秒"
+/// - "repeat": consecutive identical phrases (punctuation and letter-case ignored) with reason "重复句「...」"
+/// - "pause": silence gaps >= 1.8 seconds before a span; the reason names the opening or the two surrounding sentences
 pub fn suggest(spans : Array[Span]) -> Array[Suggestion] {
   let suggestions = []
   let mut previous_text = ""
+  let mut previous_key = ""
   let mut covered_until = 0L
   for span in spans {
+    let clean = span.text.trim().trim(chars="。.!！?？、,，").to_owned()
+    let key = clean.to_lower()
     if span.start_us - covered_until >= 1800000L {
       let gap_us = span.start_us - covered_until
+      let seconds = format_decimal_seconds(gap_us)
+      let reason = if covered_until == 0 {
+        "片头长停顿 \{seconds} 秒"
+      } else if previous_text != "" && clean != "" {
+        "「\{previous_text}」与「\{clean}」之间长停顿 \{seconds} 秒"
+      } else {
+        "长停顿 \{seconds} 秒"
+      }
       suggestions.push({
         kind: "pause",
         span_id: span.id,
         start_us: covered_until + 250000L,
         end_us: span.start_us - 250000L,
-        reason: "长停顿 \{format_decimal_seconds(gap_us)} 秒",
+        reason,
       })
     }
-    let clean = span.text.trim().trim(chars="。.!！?？、,，").to_owned()
-    let kind = match clean {
+    let kind = match key {
       "嗯"
       | "呃"
       | "额"
@@ -140,7 +150,7 @@ pub fn suggest(spans : Array[Span]) -> Array[Suggestion] {
       | "so"
       | "right"
       | "okay" => "filler"
-      _ if clean != "" && clean == previous_text => "repeat"
+      _ if key != "" && key == previous_key => "repeat"
       _ => ""
     }
     if kind != "" {
@@ -161,6 +171,7 @@ pub fn suggest(spans : Array[Span]) -> Array[Suggestion] {
       covered_until = span.end_us
     }
     previous_text = clean
+    previous_key = key
   }
   suggestions
 }
