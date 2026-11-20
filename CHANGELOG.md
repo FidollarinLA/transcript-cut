@@ -16,4 +16,6 @@
   moon run examples/minimal --target wasm-gc
   ```
 
+- CI 自动化执行并断言官方最小示例在 `js` 与 `wasm-gc` 双目标下的输出与预期一致。
+
 - Node / 浏览器宿主仍通过 `dispatch` 调用同一份核心；JS 产物只导出该入口。

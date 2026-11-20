@@ -30,7 +30,12 @@ jobs:
           moon test --target wasm-gc
       - name: Run minimal example
         run: |
-          moon run examples/minimal --target js
-          moon run examples/minimal --target wasm-gc
+          EXPECTED=$'kept 2 segments, output_duration_us=4000000\nsource 4000000us -> output 2000000us'
+          OUT_JS=$(moon run examples/minimal --target js)
+          echo "$OUT_JS"
+          diff -u <(echo "$EXPECTED") <(echo "$OUT_JS")
+          OUT_WASM=$(moon run examples/minimal --target wasm-gc)
+          echo "$OUT_WASM"
+          diff -u <(echo "$EXPECTED") <(echo "$OUT_WASM")
       - name: Build and run media tests
         run: npm test
