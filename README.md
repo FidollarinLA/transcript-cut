@@ -82,7 +82,7 @@ Windows 上也可以运行 `./scripts/start-local.ps1 -WhisperModel 'C:/path/to/
 
 ## 验证与接手
 
-完整的本地与 CI 校验流程包含代码格式检查、多目标静态检查、核心测试与媒体集成测试：
+完整的本地与 CI 校验流程包含代码格式检查、多目标静态检查、核心测试、官方最小示例运行与媒体集成测试：
 
 ```bash
 # 1. 代码格式化校验
@@ -96,14 +96,18 @@ moon check --target wasm-gc --deny-warn
 moon test --target js
 moon test --target wasm-gc
 
-# 4. 构建核心库并执行媒体集成测试
+# 4. 运行官方最小示例（校验 JS 与 wasm-gc 双目标输出）
+moon run examples/minimal --target js
+moon run examples/minimal --target wasm-gc
+
+# 5. 构建核心库并执行媒体集成测试
 node scripts/build.mjs
 node --test tests/*.test.mjs
 # 或者使用 npm 缩写：
 npm test
 ```
 
-- **CI 自动化**：GitHub Actions（`.github/workflows/check.yml`）会在 push 与 PR 时自动执行上述完整的 fmt、check (`js` + `wasm-gc`)、test (`js` + `wasm-gc`) 与媒体集成测试。
+- **CI 自动化**：GitHub Actions（`.github/workflows/check.yml`）会在 push 与 PR 时自动执行上述完整的 fmt、check (`js` + `wasm-gc`)、test (`js` + `wasm-gc`)、执行官方最小示例（校验 `js` 与 `wasm-gc` 双目标输出与预期一致）与媒体集成测试。
 - `MOON_BIN` 可指定工具链路径。Linux / macOS 用户若使用官方脚本安装 MoonBit，二进制位于 `~/.moon/bin`；运行上述 `moon` CLI 检查与测试命令前需确保该目录在 `PATH` 中（例如 `export PATH="$HOME/.moon/bin:$PATH"`）。`scripts/build.mjs` 已内置该路径探测，自带独立工具链且与全局版本并存时亦可同时设置 `MOON_HOME`。该仓库的运行命令无需安装额外的 npm 依赖。
 - 测试设置 `WHISPER_TEST_INPUT` 和 `WHISPER_MODEL` 时，会实际转写指定中文测试片并验证剪辑。`WHISPER_TEST_PATTERN` 可以指定样本应识别出的关键词正则，缺省检查“视频”。
 - 可选浏览器验收用 `node tests/browser.mjs`。设置 `PLAYWRIGHT_MODULE` 指向 playwright-core 入口 `index.mjs`，以及 `CHROME_BIN` 指向 Chrome 可执行文件。
@@ -169,6 +173,8 @@ moon run examples/minimal --target wasm-gc
      moon check --target wasm-gc --deny-warn
      moon test --target js
      moon test --target wasm-gc
+     moon run examples/minimal --target js
+     moon run examples/minimal --target wasm-gc
      npm test
      ```
   5. 执行 `moon publish` 完成向 Mooncakes 注册表的正式发布。
