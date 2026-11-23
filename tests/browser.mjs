@@ -42,6 +42,7 @@ try {
   await page.getByRole('button', { name: '剪掉区间' }).click();
   assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
   assert.equal(await page.locator('.row.removed').count(), 1);
+  assert.equal(await page.locator('#review').isHidden(), true);
   await page.getByRole('button', { name: '撤销' }).click();
   assert.equal(await page.locator('#output-duration').textContent(), '00:12.000');
   await page.getByRole('button', { name: '重做' }).click();
@@ -127,6 +128,27 @@ try {
   assert(await page.locator('.row').nth(1).evaluate(node => node.classList.contains('selected')));
   assert.equal(await page.getByRole('button', { name: '修正文字' }).isDisabled(), false);
   assert.deepEqual(errors, []);
+
+  step = '截断字幕复核';
+  await page.locator('#start').fill('10.500');
+  await page.locator('#end').fill('11.500');
+  await page.getByRole('button', { name: '剪掉区间' }).click();
+  await page.locator('#review').waitFor();
+  assert.equal(await page.locator('#review-text').textContent(), '1 句被切点截断，已从成片字幕略去。');
+  assert.equal(await page.locator('#output-duration').textContent(), '00:09.000');
+  await page.getByRole('button', { name: '定位 00:10.000' }).click();
+  await page.waitForFunction(() => document.querySelector('#player').currentTime >= 10);
+  assert.match(await page.locator('#status').textContent(), /1 句被切点截断/);
+  await page.getByRole('button', { name: '导出成片', exact: true }).click();
+  const partialSrt = page.getByRole('link', { name: '下载 SRT' });
+  await partialSrt.waitFor();
+  const partialText = await (await page.request.get(address + await partialSrt.getAttribute('href'))).text();
+  assert.match(partialText, /今天我们来演示如何用文字剪视频/);
+  assert.doesNotMatch(partialText, /剪好后/);
+  assert.doesNotMatch(partialText, /呃/);
+  await page.getByRole('button', { name: '撤销' }).click();
+  assert.equal(await page.locator('#review').isHidden(), true);
+  assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
   if (BROWSER_SCREENSHOT) await page.screenshot({ path: BROWSER_SCREENSHOT, fullPage: true });
 
   if (process.env.WHISPER_TEST_INPUT && process.env.WHISPER_MODEL) {

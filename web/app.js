@@ -1,5 +1,6 @@
 import { dispatch } from '/core.js';
 import { calculateEdit } from '/edit-core.js';
+import { partialReview } from '/review-hint.js';
 import { appendTrackDurationTip, time } from '/status-tip.js';
 import { matchShortcut } from '/shortcuts.js';
 
@@ -135,6 +136,18 @@ function render() {
   transcript.replaceChildren();
   if (!spans.length) transcript.append(element('p', 'empty-copy', '导入 SRT 或自动转写后，点击文字定位原视频。'));
   el('select-help').hidden = spans.length < 2;
+  const review = partialReview(spans, plan.partial_span_ids);
+  const reviewBar = el('review');
+  reviewBar.hidden = !review;
+  if (review) {
+    el('review-text').textContent = review.message;
+    const locate = el('review-locate');
+    locate.textContent = review.locateLabel;
+    locate.onclick = () => {
+      const span = spans.find(item => partial.has(item.id));
+      if (span) selectSpan(span, false);
+    };
+  }
   for (const span of spans) {
     const removed = covered(span.start_us, span.end_us);
     const button = element('button', `row${removed ? ' removed' : ''}`, '');
@@ -282,7 +295,8 @@ async function waitForJob(id, onProgress) {
 function apply(action, operation) {
   try {
     recalculate(action, operation);
-    notice(state.plan.partial_span_ids.length ? '部分切断了句级字幕。这些字幕已从导出中略去，可调整切点后重试。' : '');
+    const review = partialReview(state.spans, state.plan.partial_span_ids);
+    notice(review ? review.message : '');
   } catch (error) {
     notice(error.message, true);
   }
