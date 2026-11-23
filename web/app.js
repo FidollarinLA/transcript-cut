@@ -1,6 +1,7 @@
 import { dispatch } from '/core.js';
 import { calculateEdit } from '/edit-core.js';
 import { partialReview } from '/review-hint.js';
+import { restoreStatus } from '/restore-status.js';
 import { appendTrackDurationTip, time } from '/status-tip.js';
 import { matchShortcut } from '/shortcuts.js';
 
@@ -355,14 +356,14 @@ el('project-file').onchange = event => {
       throw new Error('项目文件格式或版本不受支持');
     }
     if (project.source?.sha256 !== state.asset.sha256 || project.source?.duration_us !== state.asset.duration_us) {
-      throw new Error('项目与当前视频不匹配，请先导入同一个原视频');
+      throw new Error(restoreStatus({ matched: false }));
     }
     const edit = requestEdit('plan', null, project.spans, project.history);
     state.spans = project.spans;
     state.selection = null;
     acceptEdit(edit);
     showSelection();
-    notice('转写稿、剪点和撤销记录已恢复。');
+    notice(restoreStatus({ matched: true, cursor: state.history.cursor }));
   });
 };
 el('transcribe').onclick = () => {

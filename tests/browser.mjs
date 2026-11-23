@@ -101,6 +101,7 @@ try {
     buffer: Buffer.from(JSON.stringify({ ...saved, source: { ...saved.source, sha256: 'other' } })),
   });
   await page.getByRole('status').filter({ hasText: '项目与当前视频不匹配' }).waitFor();
+  assert.match(await page.locator('#status').textContent(), /当前编辑未改动/);
   assert.equal(await page.locator('#output-duration').textContent(), '00:12.000');
   await projectInput.setInputFiles({
     name: 'saved.json',
@@ -108,6 +109,8 @@ try {
     buffer: Buffer.from(JSON.stringify(saved)),
   });
   await page.getByRole('status').filter({ hasText: '转写稿、剪点和撤销记录已恢复' }).waitFor();
+  assert.match(await page.locator('#status').textContent(), /源视频校验通过/);
+  assert.match(await page.locator('#status').textContent(), /可撤销 2 步/);
   assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
   await page.getByRole('button', { name: /最后一句字幕已更正/ }).waitFor();
   await page.getByRole('button', { name: '撤销' }).click();
