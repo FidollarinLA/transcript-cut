@@ -27,6 +27,7 @@ const web = new Map([
   ['/shortcuts.js', ['../web/shortcuts.js', 'text/javascript; charset=utf-8']],
   ['/status-tip.js', ['../web/status-tip.js', 'text/javascript; charset=utf-8']],
   ['/review-hint.js', ['../web/review-hint.js', 'text/javascript; charset=utf-8']],
+  ['/restore-status.js', ['../web/restore-status.js', 'text/javascript; charset=utf-8']],
   ['/style.css', ['../web/style.css', 'text/css; charset=utf-8']],
   ['/core.js', ['../_build/js/release/build/core/core.js', 'text/javascript; charset=utf-8']],
 ]);
