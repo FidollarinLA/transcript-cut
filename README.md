@@ -107,10 +107,10 @@ node --test tests/*.test.mjs
 npm test
 ```
 
-- **CI 自动化**：GitHub Actions（`.github/workflows/check.yml`）会在 push 与 PR 时自动执行上述完整的 fmt、check (`js` + `wasm-gc`)、test (`js` + `wasm-gc`)、执行官方最小示例（校验 `js` 与 `wasm-gc` 双目标输出与预期一致）与媒体集成测试。
+- **CI 自动化**：GitHub Actions（`.github/workflows/check.yml`）会在 push 与 PR 时自动执行上述完整的 fmt、check (`js` + `wasm-gc`)、test (`js` + `wasm-gc`)、执行官方最小示例（校验 `js` 与 `wasm-gc` 双目标输出与预期一致）与媒体集成测试。随后用仓库内 12 秒合成样例单独跑无模型浏览器冒烟（`tests/browser.mjs`）。浏览器步骤和媒体测试分开报告，失败时上传页面截图。日常启动仍然不安装 npm 依赖。
 - `MOON_BIN` 可指定工具链路径。Linux / macOS 用户若使用官方脚本安装 MoonBit，二进制位于 `~/.moon/bin`；运行上述 `moon` CLI 检查与测试命令前需确保该目录在 `PATH` 中（例如 `export PATH="$HOME/.moon/bin:$PATH"`）。`scripts/build.mjs` 已内置该路径探测，自带独立工具链且与全局版本并存时亦可同时设置 `MOON_HOME`。该仓库的运行命令无需安装额外的 npm 依赖。
 - 测试设置 `WHISPER_TEST_INPUT` 和 `WHISPER_MODEL` 时，会实际转写指定中文测试片并验证剪辑。`WHISPER_TEST_PATTERN` 可以指定样本应识别出的关键词正则，缺省检查“视频”。
-- 可选浏览器验收用 `node tests/browser.mjs`。设置 `PLAYWRIGHT_MODULE` 指向 playwright-core 入口 `index.mjs`，以及 `CHROME_BIN` 指向 Chrome 可执行文件。
+- 可选浏览器验收用 `node tests/browser.mjs`。设置 `PLAYWRIGHT_MODULE` 指向 playwright-core 入口 `index.mjs`，以及 `CHROME_BIN` 指向可播放 H.264/AAC 的 Chrome。CI 锁定 `playwright-core@1.62.1`。
 
 ## MoonBit 核心库 API
 

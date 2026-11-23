@@ -39,3 +39,23 @@ jobs:
           diff -u <(echo "$EXPECTED") <(echo "$OUT_WASM")
       - name: Build and run media tests
         run: npm test
+      - name: Install Chrome and Playwright for browser smoke
+        run: |
+          wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get install -y /tmp/chrome.deb
+          npm install --no-save --prefix "$RUNNER_TEMP/browser-smoke" playwright-core@1.62.1
+          test -x /usr/bin/google-chrome
+          test -f "$RUNNER_TEMP/browser-smoke/node_modules/playwright-core/index.mjs"
+      - name: Browser smoke without a model
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/browser-smoke/node_modules/playwright-core/index.mjs
+          CHROME_BIN: /usr/bin/google-chrome
+          BROWSER_SCREENSHOT: browser-smoke.png
+        run: node tests/browser.mjs
+      - name: Upload browser smoke screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-smoke
+          path: browser-smoke.png
+          if-no-files-found: ignore

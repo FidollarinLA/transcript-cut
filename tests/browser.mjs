@@ -15,6 +15,9 @@ const child = spawn(process.execPath, ['server/index.mjs'], {
 });
 const exit = once(child, 'exit');
 let browser;
+let page;
+let step = '启动服务';
+const errors = [];
 try {
   const [startup] = await Promise.race([
     once(child.stdout, 'data'),
@@ -22,16 +25,18 @@ try {
   ]);
   const address = startup.toString().match(/http:\/\/127\.0\.0\.1:\d+/)[0];
   browser = await chromium.launch({ executablePath: CHROME_BIN, headless: true });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  const errors = [];
+  page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.on('pageerror', error => errors.push(error.message));
+  step = '打开样例';
   await page.goto(address);
   await page.getByRole('button', { name: '打开样例' }).click();
   await page.locator('.row').first().waitFor();
   await page.waitForFunction(() => document.querySelector('#player').readyState >= 1);
   assert.equal(await page.locator('.row').count(), 5);
   assert.equal(await page.locator('#duration').textContent(), '00:12.000');
+  assert.equal(await page.locator('#player').evaluate(video => video.videoWidth > 0), true);
 
+  step = '剪除、撤销和重做';
   await page.getByRole('button', { name: /口头禅/ }).click();
   await page.waitForFunction(() => document.querySelector('#player').currentTime >= 2);
   await page.getByRole('button', { name: '剪掉区间' }).click();
@@ -54,7 +59,8 @@ try {
   await page.keyboard.press('Control+y');
   assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
 
-  await page.getByRole('button', { name: /剪好后/ }).click();
+  step = '修正最后一句';
+  await page.locator('.row').filter({ hasText: /剪好后/ }).click();
   await page.getByRole('button', { name: '修正文字' }).click();
   await page.locator('#correction-text').fill('最后一句字幕已更正。');
   await page.getByRole('button', { name: '保存', exact: true }).click();
@@ -69,7 +75,8 @@ try {
   await page.waitForFunction(() => document.querySelector('#player').currentTime >= 4);
   await page.locator('#player').evaluate(video => video.pause());
 
-  await page.getByRole('button', { name: '导出成片' }).click();
+  step = '导出并保存项目';
+  await page.getByRole('button', { name: '导出成片', exact: true }).click();
   const srtLink = page.getByRole('link', { name: '下载 SRT' });
   await srtLink.waitFor();
   const srt = await (await page.request.get(address + await srtLink.getAttribute('href'))).text();
@@ -82,6 +89,7 @@ try {
   assert.equal(saved.history.cursor, 2);
   assert.match(saved.source.sha256, /^[a-f0-9]{64}$/);
 
+  step = '错源拒绝与同源恢复';
   await page.reload();
   await page.getByRole('button', { name: '打开样例' }).click();
   await page.locator('.row').first().waitFor();
@@ -102,7 +110,7 @@ try {
   assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
   await page.getByRole('button', { name: /最后一句字幕已更正/ }).waitFor();
   await page.getByRole('button', { name: '撤销' }).click();
-  await page.getByRole('button', { name: /剪好后/ }).waitFor();
+  await page.locator('.row').filter({ hasText: /剪好后/ }).waitFor();
   await page.locator('.row').nth(2).click();
   await page.locator('.row').nth(3).click({ modifiers: ['Shift'] });
   assert.equal(await page.locator('.row.selected').count(), 2);
@@ -129,12 +137,23 @@ try {
     assert((await page.locator('.row').count()) >= 2);
     await page.locator('.row').first().click();
     await page.getByRole('button', { name: '剪掉区间' }).click();
-    await page.getByRole('button', { name: '导出成片' }).click();
+    await page.getByRole('button', { name: '导出成片', exact: true }).click();
     await page.getByRole('link', { name: '下载 MP4' }).waitFor();
     assert.deepEqual(errors, []);
     console.log('浏览器实际完成中文转写、选择句段剪辑、MP4 导出');
   }
   console.log('浏览器验收通过，剪辑、预览、字幕导出、保存恢复、源文件不匹配校验均可用');
+} catch (error) {
+  console.error(`浏览器验收失败于「${step}」：${error.message}`);
+  if (errors.length) console.error(`页面异常：${errors.join('\n')}`);
+  const shot = BROWSER_SCREENSHOT || 'browser-failure.png';
+  if (page) {
+    await page.screenshot({ path: shot, fullPage: true }).catch(shotError => {
+      console.error(`无法保存截图：${shotError.message}`);
+    });
+    console.error(`失败截图：${shot}`);
+  }
+  throw error;
 } finally {
   if (browser) await browser.close();
   child.kill();
