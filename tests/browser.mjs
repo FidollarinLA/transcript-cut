@@ -27,10 +27,59 @@ try {
   browser = await chromium.launch({ executablePath: CHROME_BIN, headless: true });
   page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.on('pageerror', error => errors.push(error.message));
+  step = '主题偏好';
+  const previewInk = () => page.evaluate(() => {
+    const lum = color => {
+      const [r, g, b] = color.match(/\d+/g).map(Number);
+      return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    };
+    return {
+      screen: lum(getComputedStyle(document.querySelector('.screen')).backgroundColor),
+      copy: lum(getComputedStyle(document.querySelector('#empty-video')).color),
+      page: getComputedStyle(document.body).backgroundColor,
+    };
+  });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto(address);
+  await page.waitForFunction(() => document.documentElement.dataset.themeReady === 'true');
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
+  assert.equal(await page.evaluate(() => localStorage.getItem('transcript-cut-theme')), null);
+  const darkPreview = await previewInk();
+  assert.ok(darkPreview.screen < 0.25, `深色预览底 ${darkPreview.screen}`);
+  assert.ok(darkPreview.copy > 0.65, `深色预览文字 ${darkPreview.copy}`);
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.reload();
+  await page.waitForFunction(() => document.documentElement.dataset.themeReady === 'true');
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'light');
+  const lightPreview = await previewInk();
+  assert.notEqual(lightPreview.page, darkPreview.page);
+  assert.ok(lightPreview.screen < 0.25, `浅色主题里预览底 ${lightPreview.screen}`);
+  assert.ok(lightPreview.copy > 0.65, `浅色主题里预览文字 ${lightPreview.copy}`);
+  const beforeToggle = await page.evaluate(() => document.documentElement.dataset.theme);
+  await page.getByRole('button', { name: '主题' }).click();
+  const chosen = await page.evaluate(() => document.documentElement.dataset.theme);
+  assert.notEqual(chosen, beforeToggle);
+  assert.ok(chosen === 'light' || chosen === 'dark');
+  await page.reload();
+  await page.waitForFunction(() => document.documentElement.dataset.themeReady === 'true');
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), chosen);
+  assert.equal(await page.evaluate(() => localStorage.getItem('transcript-cut-theme')), chosen);
+  await page.emulateMedia({ colorScheme: chosen === 'dark' ? 'light' : 'dark' });
+  await page.reload();
+  await page.waitForFunction(() => document.documentElement.dataset.themeReady === 'true');
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), chosen);
+  await page.evaluate(() => localStorage.removeItem('transcript-cut-theme'));
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.reload();
+  await page.waitForFunction(() => document.documentElement.dataset.themeReady === 'true');
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'light');
+
   step = '打开样例';
   await page.goto(address);
   await page.getByRole('button', { name: '打开样例' }).click();
   await page.locator('.row').first().waitFor();
+  const timelineHeight = await page.locator('#timeline').evaluate(node => node.getBoundingClientRect().height);
+  assert.ok(timelineHeight >= 16 && timelineHeight <= 24, `时间轴高度 ${timelineHeight}`);
   await page.waitForFunction(() => document.querySelector('#player').readyState >= 1);
   assert.equal(await page.locator('.row').count(), 5);
   assert.equal(await page.locator('#duration').textContent(), '00:12.000');
@@ -51,6 +100,18 @@ try {
   // 验证时间轴切段点击跳转定位
   const timelineBars = page.locator('#timeline span');
   assert((await timelineBars.count()) >= 2);
+  const paints = await timelineBars.evaluateAll(nodes => nodes.map(node => {
+    const style = getComputedStyle(node);
+    return `${node.className}|${style.backgroundColor}|${style.backgroundImage}`;
+  }));
+  const keptPaint = paints.find(item => !item.startsWith('removed'));
+  const cutPaint = paints.find(item => item.startsWith('removed'));
+  assert.ok(keptPaint && cutPaint && keptPaint !== cutPaint);
+  await timelineBars.last().hover();
+  assert.match(await page.locator('#timeline-readout').textContent(), /当前位置/);
+  assert.match(await page.locator('#timeline-readout').textContent(), /保留|剪除/);
+  await timelineBars.last().focus();
+  assert.match(await page.locator('#timeline-readout').textContent(), /当前位置/);
   await timelineBars.last().click();
   await page.waitForFunction(() => document.querySelector('#player').currentTime >= 4);
 

@@ -4,6 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>文字剪视频</title>
+  <script>
+    try {
+      var storedTheme = localStorage.getItem('transcript-cut-theme');
+      var theme = storedTheme === 'light' || storedTheme === 'dark'
+        ? storedTheme
+        : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.dataset.theme = theme;
+    } catch (e) {}
+  </script>
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/app.js"></script>
 </head>
@@ -11,6 +20,7 @@
   <header class="top">
     <div class="brand"><div class="mark" aria-hidden="true">✂</div><h1>文字剪视频</h1></div>
     <div class="actions">
+      <button id="theme" type="button" aria-pressed="false" title="跟随系统外观">主题</button>
       <button id="demo" type="button">打开样例</button>
       <label class="button">导入 MP4<input id="video-file" type="file" accept=".mp4,video/mp4"></label>
       <button id="export" class="primary" type="button" disabled>导出成片</button>
@@ -26,7 +36,13 @@
           <video id="player" controls playsinline preload="metadata" hidden></video>
           <div id="empty-video" class="placeholder">导入 MP4，或打开样例</div>
         </div>
-        <div class="timeline" id="timeline" aria-label="源视频保留和剪除区间"></div>
+        <div class="timeline-block">
+          <div class="timeline-meta">
+            <p id="timeline-readout" class="timeline-readout">导入视频后，悬停或聚焦时间轴可查看当前位置</p>
+            <p class="legend"><span class="swatch keep"></span>保留<span class="swatch cut"></span>剪除</p>
+          </div>
+          <div class="timeline" id="timeline" aria-label="源视频保留和剪除区间"></div>
+        </div>
         <div class="section-head stats">
           <div><span>源视频</span><strong id="duration">—</strong></div>
           <div><span>成片预计</span><strong id="output-duration">—</strong></div>
