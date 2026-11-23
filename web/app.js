@@ -8,6 +8,72 @@ import { matchShortcut } from '/shortcuts.js';
 const el = id => document.getElementById(id);
 const player = el('player');
 const unit = 1_000_000;
+const THEME_KEY = 'transcript-cut-theme';
+let pointerLabel = '';
+let focusLabel = '';
+
+function readStoredTheme() {
+  try {
+    const value = localStorage.getItem(THEME_KEY);
+    return value === 'light' || value === 'dark' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function systemTheme() {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function applyTheme(theme, source) {
+  const root = document.documentElement;
+  root.dataset.theme = theme === 'dark' ? 'dark' : 'light';
+  root.dataset.themeSource = source;
+  root.dataset.themeReady = 'true';
+  const button = el('theme');
+  if (!button) return;
+  const dark = root.dataset.theme === 'dark';
+  button.setAttribute('aria-pressed', String(dark));
+  const name = dark ? '深色' : '浅色';
+  button.title = source === 'saved' ? `当前${name}，点击切换` : `当前跟随系统（${name}），点击切换`;
+}
+
+function initTheme() {
+  const stored = readStoredTheme();
+  applyTheme(stored ?? systemTheme(), stored ? 'saved' : 'system');
+  el('theme')?.addEventListener('click', () => {
+    const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem(THEME_KEY, next); } catch { /* 隐私模式或配额不足时仍切换当前页 */ }
+    applyTheme(next, 'saved');
+  });
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (!readStoredTheme()) applyTheme(systemTheme(), 'system');
+  });
+}
+
+function currentUs() {
+  const seconds = Number.isFinite(player.currentTime) ? player.currentTime : 0;
+  return Math.max(0, Math.round(seconds * unit));
+}
+
+function paintTimelineStatus() {
+  const readout = el('timeline-readout');
+  if (!readout) return;
+  const here = state.asset ? `当前位置 ${time(currentUs())}` : '';
+  const mark = focusLabel || pointerLabel;
+  if (here && mark) readout.textContent = `${here} · ${mark}`;
+  else if (mark) readout.textContent = mark;
+  else if (here) readout.textContent = here;
+  else readout.textContent = '导入视频后，悬停或聚焦时间轴可查看当前位置';
+}
+
+function placePlayhead() {
+  const head = document.querySelector('#timeline .playhead');
+  if (!head || !state.asset?.duration_us) return;
+  const ratio = Math.min(1, Math.max(0, currentUs() / state.asset.duration_us));
+  head.style.left = ratio >= 1 ? 'calc(100% - 2px)' : `${ratio * 100}%`;
+}
+
 const freshHistory = () => ({ operations: [], cursor: 0 });
 const state = {
   asset: null, spans: [], history: freshHistory(), plan: null,
@@ -16,6 +82,7 @@ const state = {
 };
 let rows = new Map();
 let activeRow;
+initTheme();
 
 async function request(path, options) {
   const response = await fetch(path, options);
@@ -160,21 +227,7 @@ function render() {
     rows.set(span.id, { button, text });
     transcript.append(button);
   }
-  const timeline = el('timeline');
-  timeline.replaceChildren();
-  const parts = [...plan.kept, ...plan.deleted.map(cut => ({ ...cut, removed: true }))];
-  for (const part of parts.sort((a, b) => a.start_us - b.start_us)) {
-    const bar = element('span', part.removed ? 'removed' : '', '');
-    bar.style.flexGrow = String(part.end_us - part.start_us);
-    bar.title = `${part.removed ? '剪除' : '保留'} ${time(part.start_us)} – ${time(part.end_us)}（点击跳转）`;
-    bar.onclick = () => {
-      if (state.asset) {
-        state.listenUntil = null;
-        player.currentTime = part.start_us / unit;
-      }
-    };
-    timeline.append(bar);
-  }
+  renderTimeline(plan);
   el('duration').textContent = time(asset.duration_us);
   el('output-duration').textContent = time(plan.output_duration_us);
   el('cut-duration').textContent = time(asset.duration_us - plan.output_duration_us);
@@ -259,7 +312,63 @@ function listen(start, end) {
   player.play().catch(error => notice(error.message, true));
 }
 
+function renderTimeline(plan) {
+  pointerLabel = '';
+  focusLabel = '';
+  const timeline = el('timeline');
+  timeline.replaceChildren();
+  const parts = [...plan.kept, ...plan.deleted.map(cut => ({ ...cut, removed: true }))];
+  for (const part of parts.sort((a, b) => a.start_us - b.start_us)) {
+    const bar = element('span', part.removed ? 'removed' : '', '');
+    const label = `${part.removed ? '剪除' : '保留'} ${time(part.start_us)} – ${time(part.end_us)}`;
+    bar.style.flexGrow = String(part.end_us - part.start_us);
+    bar.tabIndex = 0;
+    bar.setAttribute('role', 'button');
+    bar.title = `${label}（点击跳转）`;
+    bar.setAttribute('aria-label', `${label}（点击跳转）`);
+    const jump = () => {
+      if (!state.asset) return;
+      state.listenUntil = null;
+      player.currentTime = part.start_us / unit;
+      placePlayhead();
+      paintTimelineStatus();
+    };
+    bar.addEventListener('click', jump);
+    bar.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      event.stopPropagation();
+      jump();
+    });
+    bar.addEventListener('mouseenter', () => {
+      pointerLabel = label;
+      paintTimelineStatus();
+    });
+    bar.addEventListener('mouseleave', () => {
+      pointerLabel = '';
+      paintTimelineStatus();
+    });
+    bar.addEventListener('focus', () => {
+      focusLabel = label;
+      paintTimelineStatus();
+    });
+    bar.addEventListener('blur', () => {
+      focusLabel = '';
+      paintTimelineStatus();
+    });
+    timeline.append(bar);
+  }
+  const playhead = document.createElement('div');
+  playhead.className = 'playhead';
+  playhead.setAttribute('aria-hidden', 'true');
+  timeline.append(playhead);
+  placePlayhead();
+  paintTimelineStatus();
+}
+
 function updatePlayback() {
+  placePlayhead();
+  paintTimelineStatus();
   if (!state.plan || player.seeking) return;
   if (state.listenUntil !== null && player.currentTime >= state.listenUntil) {
     player.pause();
