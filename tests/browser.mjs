@@ -110,6 +110,56 @@ try {
   assert.equal(await page.locator('#duration').textContent(), '00:12.000');
   assert.equal(await page.locator('#player').evaluate(video => video.videoWidth > 0), true);
 
+  step = '播放时转写跟随';
+  const rowSeen = index => page.evaluate(rowIndex => {
+    const box = document.querySelector('#transcript').getBoundingClientRect();
+    const row = document.querySelectorAll('#transcript .row')[rowIndex]?.getBoundingClientRect();
+    if (!row) return false;
+    return Math.min(box.bottom, row.bottom) - Math.max(box.top, row.top) > 1;
+  }, index);
+  await page.locator('#transcript').evaluate(node => {
+    const first = node.querySelector('.row');
+    const height = `${Math.ceil(first.getBoundingClientRect().height)}px`;
+    node.style.minHeight = '0px';
+    node.style.maxHeight = height;
+    node.scrollTop = 0;
+  });
+  assert.equal(await rowSeen(4), false);
+  await page.locator('#player').evaluate(async video => {
+    video.pause();
+    video.currentTime = 0;
+    await video.play();
+    video.currentTime = 10.2;
+  });
+  await page.waitForFunction(() => {
+    const box = document.querySelector('#transcript').getBoundingClientRect();
+    const row = document.querySelector('#transcript .row.active')?.getBoundingClientRect();
+    const text = document.querySelector('#transcript .row.active .line')?.textContent || '';
+    if (!row || !text.includes('导出成片')) return false;
+    return Math.min(box.bottom, row.bottom) - Math.max(box.top, row.top) > 1;
+  });
+  await page.locator('#player').evaluate(video => video.pause());
+  await page.locator('#transcript').evaluate(node => { node.scrollTop = 0; });
+  await page.waitForTimeout(400);
+  assert.equal(await rowSeen(4), false);
+  await page.evaluate(() => {
+    const button = [...document.querySelectorAll('#suggestions button')].find(node => node.textContent.includes('重复句'));
+    button.click();
+  });
+  await page.waitForFunction(() => {
+    const box = document.querySelector('#transcript').getBoundingClientRect();
+    const row = document.querySelector('#transcript .row.active');
+    if (!row || !row.querySelector('.time')?.textContent?.includes('00:06.500')) return false;
+    const rect = row.getBoundingClientRect();
+    return Math.min(box.bottom, rect.bottom) - Math.max(box.top, rect.top) > 1;
+  });
+  await page.locator('#player').evaluate(video => video.pause());
+  await page.locator('#transcript').evaluate(node => {
+    node.scrollTop = 0;
+    node.style.maxHeight = '';
+    node.style.minHeight = '';
+  });
+
   step = '剪除、撤销和重做';
   await page.getByRole('button', { name: /口头禅/ }).click();
   await page.waitForFunction(() => document.querySelector('#player').currentTime >= 2);
@@ -137,8 +187,13 @@ try {
   assert.match(await page.locator('#timeline-readout').textContent(), /保留|剪除/);
   await timelineBars.last().focus();
   assert.match(await page.locator('#timeline-readout').textContent(), /当前位置/);
-  await timelineBars.last().click();
-  await page.waitForFunction(() => document.querySelector('#player').currentTime >= 4);
+  const lastBar = await timelineBars.last().boundingBox();
+  await page.mouse.click(lastBar.x + lastBar.width * 0.5, lastBar.y + lastBar.height * 0.5);
+  await page.waitForFunction(() => {
+    const time = document.querySelector('#player').currentTime;
+    return time > 6.5 && time < 9.5;
+  });
+  assert.match(await page.locator('#timeline-readout').textContent(), /当前位置/);
 
   // 验证键盘快捷键：Ctrl+Z 撤销，Ctrl+Y 重做
   await page.keyboard.press('Control+z');

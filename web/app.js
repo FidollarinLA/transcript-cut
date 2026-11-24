@@ -16,6 +16,7 @@ import { appendTrackDurationTip, time } from '/status-tip.js';
 import { suggestionFilters, suggestionMeta, summarizeSuggestions, visibleSuggestions } from '/suggestion-kind.js';
 import { jobPollError, jobStageText } from '/job-status.js';
 import { classifyDrop } from '/drop-file.js';
+import { seekUsInBar } from '/seek-bar.js';
 import { matchShortcut } from '/shortcuts.js';
 import { shortcutHelp } from '/shortcuts.js';
 
@@ -407,21 +408,24 @@ function renderTimeline(plan) {
     bar.style.flexGrow = String(part.end_us - part.start_us);
     bar.tabIndex = 0;
     bar.setAttribute('role', 'button');
-    bar.title = `${label}（点击跳转）`;
-    bar.setAttribute('aria-label', `${label}（点击跳转）`);
-    const jump = () => {
+    bar.title = `${label}（点击按位置跳转）`;
+    bar.setAttribute('aria-label', `${label}（点击按位置跳转）`);
+    const seekTo = us => {
       if (!state.asset) return;
       state.listenUntil = null;
-      player.currentTime = part.start_us / unit;
+      player.currentTime = us / unit;
       placePlayhead();
       paintTimelineStatus();
     };
-    bar.addEventListener('click', jump);
+    bar.addEventListener('click', event => {
+      const rect = bar.getBoundingClientRect();
+      seekTo(seekUsInBar(part.start_us, part.end_us, event.clientX - rect.left, rect.width));
+    });
     bar.addEventListener('keydown', event => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
       event.stopPropagation();
-      jump();
+      seekTo(part.start_us);
     });
     bar.addEventListener('mouseenter', () => {
       pointerLabel = label;
@@ -453,6 +457,7 @@ function updatePlayback() {
   placePlayhead();
   paintTimelineStatus();
   if (!state.plan || player.seeking) return;
+  const following = !player.paused || state.listenUntil !== null;
   if (state.listenUntil !== null && player.currentTime >= state.listenUntil) {
     player.pause();
     state.listenUntil = null;
@@ -472,6 +477,7 @@ function updatePlayback() {
     activeRow?.classList.remove('active');
     next?.classList.add('active');
     activeRow = next;
+    if (following && next) next.scrollIntoView({ block: 'nearest' });
   }
 }
 
