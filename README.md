@@ -120,6 +120,7 @@ npm test
 - **计划构建与执行**：
   - `execute(request : Request) -> EditResult raise Invalid`：根据半开微秒区间计算删除求补集、有序保留区间、字幕重算与建议候选。
   - `plan(duration_us : Int64, spans : Array[Span], history : History) -> EditResult raise Invalid`：只读计算剪辑计划，不推进编辑历史。
+  - `dispatch(input : String) -> String`：面向 JS / Node 宿主的 JSON 字符串入口，边界上 Int64 时标采用十进制字符串，内部完成 JSON 解析、执行与序列化往返。
 - **双向时间轴映射**：
   - `Plan::source_to_output(self : Plan, source_us : Int64) -> Int64?`：将源视频微秒时间戳映射到输出时间轴（被删片段及界外返回 `None`）。
   - `Plan::output_to_source(self : Plan, output_us : Int64) -> Int64?`：将成片时间戳反向映射回原始素材时间戳（跨界及界外返回 `None`）。
@@ -148,7 +149,9 @@ npm test
   - `serialize_srt(captions)`：将字幕数组格式化为标准 SRT 字符串。
   - `suggest(spans)`：自动探测口头禅（中英文语气助词，英文忽略大小写）、重复句（标点和字母大小写归一化比对）与静音长停顿（>= 1.8s）候选区间，并输出可解释的建议原因（`reason`，片头或相邻两句会写进停顿理由）。
   - `Suggestion`：包含 `kind`、`span_id`、`start_us`、`end_us` 与 `reason`（例如 `口头禅「那个」`、`重复句「...」`、`片头长停顿 2.0 秒`、`「上一句」与「下一句」之间长停顿 2.0 秒`），支持 `duration()`、`contains(ts)`、`to_interval()` 与 `explain()`。
-- 导出的结构体（`Interval`、`Segment`、`Suggestion`、`Plan`、`EditResult` 等）均使用 `pub(all)`，便于外部包直接解构与访问字段。
+- **结构体与 JSON 序列化**：
+  - 核心结构体派生了 `@json.FromJson` 与 `@json.ToJson`（`Request`、`History`、`Span`、`Suggestion`、`Operation` 支持 `from_json` / `to_json`；`EditResult`、`Plan`、`Interval`、`Segment` 支持 `to_json`），便于跨语言或存储交换。
+  - 导出的结构体（`Interval`、`Segment`、`Suggestion`、`Plan`、`EditResult` 等）均使用 `pub(all)`，便于外部包直接解构与访问字段。
 
 ## Mooncakes 模块发布准备
 
