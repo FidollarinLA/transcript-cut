@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isEditableElement, matchShortcut } from '../web/shortcuts.js';
+import { isEditableElement, matchShortcut, shortcutHelp } from '../web/shortcuts.js';
 
 test('isEditableElement 正确区分文本编辑框与普通按钮元素', () => {
   const mockEl = (tag, type = '', isContentEditable = false) => ({
@@ -92,4 +92,62 @@ test('弹窗打开或在输入框中打字时屏蔽全局快捷键', () => {
 
   // Alt 组合键不误触发
   assert.equal(matchShortcut(evt('z', { ctrlKey: true, altKey: true })), null);
+});
+
+test('问号打开帮助，输入法、修饰键、弹窗和输入框都不会误开', () => {
+  const evt = (key, opts = {}) => ({
+    key,
+    ctrlKey: Boolean(opts.ctrlKey),
+    metaKey: Boolean(opts.metaKey),
+    shiftKey: Boolean(opts.shiftKey),
+    altKey: Boolean(opts.altKey),
+    isComposing: Boolean(opts.isComposing),
+    target: opts.target || { tagName: 'BODY', getAttribute: () => null },
+  });
+  const field = { tagName: 'INPUT', type: 'number', getAttribute: () => null };
+
+  assert.equal(matchShortcut(evt('?')), 'help');
+  assert.equal(matchShortcut(evt('?', { shiftKey: true })), 'help');
+  assert.equal(matchShortcut(evt('/', { shiftKey: true })), 'help');
+  assert.equal(matchShortcut(evt('？')), 'help');
+  assert.equal(matchShortcut(evt('/')), null);
+  assert.equal(matchShortcut(evt('?', { ctrlKey: true })), null);
+  assert.equal(matchShortcut(evt('?', { altKey: true })), null);
+  assert.equal(matchShortcut(evt('?', { isComposing: true })), null);
+  assert.equal(matchShortcut(evt('Process')), null);
+  assert.equal(matchShortcut(evt('?'), { isDialogOpen: true }), null);
+  assert.equal(matchShortcut(evt('?', { target: field })), null);
+});
+
+test('帮助清单与真实键位返回的动作一致', () => {
+  const evt = (key, opts = {}) => ({
+    key,
+    ctrlKey: Boolean(opts.ctrlKey),
+    metaKey: Boolean(opts.metaKey),
+    shiftKey: Boolean(opts.shiftKey),
+    altKey: Boolean(opts.altKey),
+    target: { tagName: 'BODY', getAttribute: () => null },
+  });
+  const found = new Set();
+  const remember = action => { if (action) found.add(action); };
+  for (const key of [' ', 'Spacebar', 'k', 'K', 'j', 'J', 'l', 'L', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Delete', 'Backspace', 'Escape', '?', '？', '/']) {
+    remember(matchShortcut(evt(key)));
+    remember(matchShortcut(evt(key, { shiftKey: true })));
+  }
+  for (const key of ['z', 'Z', 'y', 'Y']) {
+    remember(matchShortcut(evt(key, { ctrlKey: true })));
+    remember(matchShortcut(evt(key, { metaKey: true })));
+    remember(matchShortcut(evt(key, { ctrlKey: true, shiftKey: true })));
+    remember(matchShortcut(evt(key, { metaKey: true, shiftKey: true })));
+  }
+  const documented = new Set(shortcutHelp.flatMap(group => group.rows.flatMap(row => row.actions)));
+  assert.deepEqual([...found].sort(), [...documented].sort());
+  for (const group of shortcutHelp) {
+    assert.ok(group.title);
+    for (const row of group.rows) {
+      assert.ok(row.keys.length > 0);
+      assert.ok(row.label);
+    }
+  }
+  assert.ok(shortcutHelp.some(group => group.rows.some(row => row.keys.includes('Shift + 点击') && row.actions.length === 0)));
 });

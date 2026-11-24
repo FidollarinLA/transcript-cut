@@ -24,6 +24,7 @@
     <div class="brand"><div class="mark" aria-hidden="true">✂</div><h1>文字剪视频</h1></div>
     <div class="actions">
       <button id="theme" type="button" aria-pressed="false" title="跟随系统外观">主题</button>
+      <button id="shortcuts-help" type="button" aria-haspopup="dialog" aria-controls="shortcuts-dialog">快捷键</button>
       <button id="demo" type="button">打开样例</button>
       <label class="button">导入 MP4<input id="video-file" type="file" accept=".mp4,video/mp4"></label>
       <button id="export" class="primary" type="button" disabled>导出成片</button>
@@ -99,6 +100,14 @@
       <label for="correction-text" class="sr-only">字幕内容</label>
       <textarea id="correction-text" rows="4" maxlength="2000"></textarea>
       <div class="actions"><button value="cancel">取消</button><button class="dark" value="save">保存</button></div>
+    </form>
+  </dialog>
+  <dialog id="shortcuts-dialog" class="shortcuts-dialog" aria-labelledby="shortcuts-dialog-title">
+    <form method="dialog">
+      <h2 id="shortcuts-dialog-title">键盘快捷键</h2>
+      <p>在输入框打字或任意弹窗打开时，播放和剪辑快捷键会暂停。</p>
+      <div id="shortcuts-list" class="shortcuts-list"></div>
+      <div class="actions"><button value="close">关闭</button></div>
     </form>
   </dialog>
 </body>

@@ -15,6 +15,7 @@ import { restoreStatus } from '/restore-status.js';
 import { appendTrackDurationTip, time } from '/status-tip.js';
 import { classifyDrop } from '/drop-file.js';
 import { matchShortcut } from '/shortcuts.js';
+import { shortcutHelp } from '/shortcuts.js';
 
 const el = id => document.getElementById(id);
 const player = el('player');
@@ -613,12 +614,72 @@ if (player.requestVideoFrameCallback) {
   player.requestVideoFrameCallback(onFrame);
 }
 
+function anyDialogOpen() {
+  return [...document.querySelectorAll('dialog')].some(dialog => dialog.open);
+}
+
+function renderShortcutHelp() {
+  const list = el('shortcuts-list');
+  if (!list) return;
+  list.replaceChildren();
+  for (const group of shortcutHelp) {
+    const section = document.createElement('section');
+    section.className = 'shortcut-group';
+    const heading = document.createElement('h3');
+    heading.textContent = group.title;
+    section.append(heading);
+    for (const row of group.rows) {
+      const line = document.createElement('div');
+      line.className = 'shortcut-row';
+      const keys = document.createElement('span');
+      keys.className = 'shortcut-keys';
+      row.keys.forEach((key, index) => {
+        if (index > 0) keys.append(document.createTextNode('/'));
+        const keycap = document.createElement('kbd');
+        keycap.textContent = key;
+        keys.append(keycap);
+      });
+      const label = document.createElement('span');
+      label.textContent = row.label;
+      line.append(keys, label);
+      section.append(line);
+    }
+    list.append(section);
+  }
+}
+
+let shortcutHelpFocus = null;
+
+function openShortcutHelp() {
+  const dialog = el('shortcuts-dialog');
+  if (!dialog || anyDialogOpen()) return;
+  const active = document.activeElement;
+  shortcutHelpFocus = active instanceof HTMLElement && active !== document.body
+    ? active
+    : el('shortcuts-help');
+  dialog.showModal();
+  dialog.scrollTop = 0;
+  el('shortcuts-list').scrollTop = 0;
+}
+
+renderShortcutHelp();
+el('shortcuts-help').onclick = () => openShortcutHelp();
+el('shortcuts-dialog').addEventListener('close', () => {
+  const target = shortcutHelpFocus;
+  shortcutHelpFocus = null;
+  if (target?.isConnected) target.focus();
+});
+
 window.addEventListener('keydown', event => {
-  const isDialogOpen = el('correction').open;
-  const action = matchShortcut(event, { isDialogOpen });
+  const action = matchShortcut(event, { isDialogOpen: anyDialogOpen() });
   if (!action) return;
 
   switch (action) {
+    case 'help': {
+      event.preventDefault();
+      openShortcutHelp();
+      break;
+    }
     case 'play-pause': {
       if (state.asset) {
         event.preventDefault();

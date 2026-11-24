@@ -475,6 +475,81 @@ try {
   assert.equal(errors.length, errorsBeforeSave);
   await captureDialogs('accept', () => page.reload());
 
+  step = '快捷键说明';
+  const errorsBeforeHelp = errors.length;
+  const setTheme = async theme => {
+    const current = await page.evaluate(() => document.documentElement.dataset.theme);
+    if (current !== theme) await page.getByRole('button', { name: '主题', exact: true }).click();
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), theme);
+  };
+  const helpButton = page.getByRole('button', { name: '快捷键', exact: true });
+  const helpDialog = page.locator('#shortcuts-dialog');
+  await setTheme('light');
+  await helpButton.click();
+  assert.equal(await helpDialog.evaluate(node => node.open), true);
+  const helpText = await helpDialog.textContent();
+  assert.match(helpText, /播放或暂停/);
+  assert.match(helpText, /剪掉当前选区/);
+  assert.match(helpText, /打开快捷键说明/);
+  assert.match(helpText, /播放和剪辑快捷键会暂停/);
+  if (process.env.SHORTCUT_SCREENSHOT_DIR) {
+    await page.screenshot({ path: `${process.env.SHORTCUT_SCREENSHOT_DIR}/light.png` });
+  }
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('#shortcuts-dialog').open);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'shortcuts-help');
+  await setTheme('dark');
+  await helpButton.click();
+  if (process.env.SHORTCUT_SCREENSHOT_DIR) {
+    await page.screenshot({ path: `${process.env.SHORTCUT_SCREENSHOT_DIR}/dark.png` });
+  }
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('#shortcuts-dialog').open);
+  await setTheme('light');
+
+  await page.getByRole('button', { name: '打开样例', exact: true }).click();
+  await page.locator('.row').first().waitFor();
+  const sampleRow = page.locator('.row').nth(1);
+  await sampleRow.click();
+  await page.locator('#selection').waitFor();
+  const durationBeforeHelp = await page.locator('#output-duration').textContent();
+  await page.keyboard.press('?');
+  await page.waitForFunction(() => document.querySelector('#shortcuts-dialog').open);
+  await page.keyboard.press('Delete');
+  await page.keyboard.press('Control+z');
+  assert.equal(await page.locator('#output-duration').textContent(), durationBeforeHelp);
+  assert.equal(await page.locator('.row.removed').count(), 0);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('#shortcuts-dialog').open);
+  assert.equal(await page.locator('#selection').isHidden(), false);
+  assert.equal(await page.locator('.row.selected').count(), 1);
+  assert.match(await page.evaluate(() => document.activeElement?.className || ''), /row/);
+  await page.keyboard.press('Delete');
+  await page.locator('.row.removed').waitFor();
+  assert.equal(await leaveWouldPrompt(), true);
+  const removedBeforePanel = await page.locator('.row.removed').count();
+  await helpButton.click();
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('#shortcuts-dialog').open);
+  assert.equal(await page.locator('.row.removed').count(), removedBeforePanel);
+  assert.equal(await leaveWouldPrompt(), true);
+  await page.keyboard.press('Control+z');
+  assert.equal(await page.locator('.row.removed').count(), 0);
+
+  const startField = page.locator('#start');
+  await startField.click();
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'start');
+  await startField.press('?');
+  assert.equal(await helpDialog.evaluate(node => node.open), false);
+  await page.getByRole('button', { name: '修正文字' }).click();
+  await page.waitForFunction(() => document.querySelector('#correction').open);
+  await page.keyboard.press('?');
+  assert.equal(await helpDialog.evaluate(node => node.open), false);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('#correction').open);
+  assert.equal(await page.locator('#selection').isHidden(), false);
+  assert.equal(errors.length, errorsBeforeHelp);
+
   console.log('浏览器验收通过，剪辑、预览、字幕导出、保存恢复、源文件不匹配校验均可用');
 } catch (error) {
   console.error(`浏览器验收失败于「${step}」：${error.message}`);
