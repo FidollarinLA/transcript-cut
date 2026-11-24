@@ -3,6 +3,7 @@ import { calculateEdit } from '/edit-core.js';
 import { partialReview } from '/review-hint.js';
 import { restoreStatus } from '/restore-status.js';
 import { appendTrackDurationTip, time } from '/status-tip.js';
+import { classifyDrop } from '/drop-file.js';
 import { matchShortcut } from '/shortcuts.js';
 
 const el = id => document.getElementById(id);
@@ -415,43 +416,24 @@ function apply(action, operation) {
 el('demo').onclick = () => perform('正在打开样例…', async () => {
   setAsset(await post('/api/demo'), '样例 · 12 秒测试片', '样例已就绪。请选择一行，复听后剪掉，再导出。');
 });
-el('video-file').onchange = event => {
-  const file = event.target.files[0];
-  event.target.value = '';
+
+function importVideo(file) {
   if (!file) return;
   void perform('正在读取视频…', async () => {
     setAsset(await request('/api/assets', { method: 'POST', body: file }), file.name, '视频已导入。可以导入同源 SRT 或自动转写。');
   });
-};
-el('srt-file').onchange = event => {
-  const file = event.target.files[0];
-  event.target.value = '';
+}
+
+function importSrt(file) {
   if (!file || !allowReplacingTranscript()) return;
   void perform('正在读取字幕…', async () => {
     const { spans } = await request(assetPath('srt'), { method: 'POST', body: file });
     replaceSpans(spans);
     notice(`已导入 ${spans.length} 个句段。`);
   });
-};
-el('save-project').onclick = () => {
-  const project = {
-    format: 'transcript-cut',
-    schema_version: 1,
-    source: { sha256: state.asset.sha256, duration_us: state.asset.duration_us },
-    spans: state.spans,
-    history: state.history,
-  };
-  const address = URL.createObjectURL(new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' }));
-  const link = document.createElement('a');
-  link.href = address;
-  link.download = '文字剪视频.transcript-cut.json';
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(address), 30_000);
-  notice('项目文件已生成。恢复时请先导入同一个原视频。');
-};
-el('project-file').onchange = event => {
-  const file = event.target.files[0];
-  event.target.value = '';
+}
+
+function importProject(file) {
   if (!file || !allowReplacingTranscript()) return;
   void perform('正在恢复项目…', async () => {
     if (file.size > 10_000_000) throw new Error('项目文件超过 10 MB');
@@ -474,7 +456,93 @@ el('project-file').onchange = event => {
     showSelection();
     notice(restoreStatus({ matched: true, cursor: state.history.cursor }));
   });
+}
+
+function importByKind(kind, file) {
+  if (kind === 'video') importVideo(file);
+  else if (kind === 'srt') importSrt(file);
+  else importProject(file);
+}
+
+el('video-file').onchange = event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  importVideo(file);
 };
+el('srt-file').onchange = event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  importSrt(file);
+};
+el('save-project').onclick = () => {
+  const project = {
+    format: 'transcript-cut',
+    schema_version: 1,
+    source: { sha256: state.asset.sha256, duration_us: state.asset.duration_us },
+    spans: state.spans,
+    history: state.history,
+  };
+  const address = URL.createObjectURL(new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' }));
+  const link = document.createElement('a');
+  link.href = address;
+  link.download = '文字剪视频.transcript-cut.json';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(address), 30_000);
+  notice('项目文件已生成。恢复时请先导入同一个原视频。');
+};
+el('project-file').onchange = event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  importProject(file);
+};
+
+let dragDepth = 0;
+
+function fileDrag(event) {
+  const types = [...(event.dataTransfer?.types || [])];
+  return types.includes('Files') || (event.dataTransfer?.files?.length || 0) > 0;
+}
+
+function hideDropOverlay() {
+  dragDepth = 0;
+  el('drop-overlay').hidden = true;
+}
+
+window.addEventListener('dragenter', event => {
+  if (!fileDrag(event)) return;
+  event.preventDefault();
+  dragDepth += 1;
+  el('drop-overlay').hidden = false;
+});
+window.addEventListener('dragover', event => {
+  if (!fileDrag(event)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+});
+window.addEventListener('dragleave', () => {
+  if (dragDepth === 0) return;
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) el('drop-overlay').hidden = true;
+});
+window.addEventListener('drop', event => {
+  if (!fileDrag(event)) return;
+  event.preventDefault();
+  hideDropOverlay();
+  const dropped = classifyDrop(event.dataTransfer?.files);
+  if (dropped.error) {
+    notice(dropped.error, true);
+    return;
+  }
+  if (state.busy) {
+    notice('请等待当前操作完成。', true);
+    return;
+  }
+  if (dropped.kind !== 'video' && !state.asset) {
+    notice('请先导入 MP4，再拖入字幕或项目。', true);
+    return;
+  }
+  importByKind(dropped.kind, dropped.file);
+});
 el('transcribe').onclick = () => {
   if (!allowReplacingTranscript()) return;
   void perform('Whisper 正在本机转写，可以先看原视频。', async () => {

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { mkdtemp, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const { PLAYWRIGHT_MODULE, CHROME_BIN, BROWSER_SCREENSHOT } = process.env;
@@ -214,6 +215,128 @@ try {
   assert.equal(await page.locator('#review').isHidden(), true);
   assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
   if (BROWSER_SCREENSHOT) await page.screenshot({ path: BROWSER_SCREENSHOT, fullPage: true });
+
+  step = '拖放导入';
+  await page.goto(address);
+  await page.waitForFunction(() => document.documentElement.dataset.themeReady === 'true');
+  await page.evaluate(() => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['x'], 'a.txt', { type: 'text/plain' }));
+    document.body.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  });
+  assert.equal(await page.locator('#drop-overlay').isHidden(), false);
+  await page.evaluate(() => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['x'], 'a.txt', { type: 'text/plain' }));
+    document.body.dispatchEvent(new DragEvent('dragleave', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  });
+  assert.equal(await page.locator('#drop-overlay').isHidden(), true);
+  await page.evaluate(() => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['x'], 'a.txt', { type: 'text/plain' }));
+    document.body.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    document.body.dispatchEvent(new DragEvent('dragleave', { bubbles: true, cancelable: true }));
+  });
+  assert.equal(await page.locator('#drop-overlay').isHidden(), true);
+
+  const dropFiles = async files => {
+    await page.evaluate(items => {
+      const transfer = new DataTransfer();
+      for (const item of items) {
+        const binary = atob(item.base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+        transfer.items.add(new File([bytes], item.name, { type: item.type }));
+      }
+      const init = { bubbles: true, cancelable: true, dataTransfer: transfer };
+      document.body.dispatchEvent(new DragEvent('dragenter', init));
+      document.body.dispatchEvent(new DragEvent('drop', init));
+    }, files.map(file => ({
+      name: file.name,
+      type: file.type || '',
+      base64: Buffer.from(file.buffer).toString('base64'),
+    })));
+  };
+  const dropped = (name, type, buffer) => dropFiles([{ name, type, buffer }]);
+
+  await dropped('fake.mp4', 'video/mp4', Buffer.from('not a video'));
+  await page.locator('#status.error').waitFor();
+  assert.doesNotMatch(await page.locator('#status').textContent(), /视频已导入/);
+  assert.equal(await page.locator('#filename').textContent(), '未导入视频');
+  assert.equal(await page.locator('#player').isHidden(), true);
+  assert.equal(await page.locator('#drop-overlay').isHidden(), true);
+
+  await dropped('notes.txt', 'text/plain', Buffer.from('hello'));
+  await page.getByRole('status').filter({ hasText: '请拖入 MP4、SRT 或项目 JSON' }).waitFor();
+
+  const earlySrt = Buffer.from('1\n00:00:00,000 --> 00:00:00,200\n早了。\n');
+  await dropped('early.srt', 'application/x-subrip', earlySrt);
+  await page.getByRole('status').filter({ hasText: '请先导入 MP4' }).waitFor();
+  assert.equal(await page.locator('.row').count(), 0);
+
+  await dropFiles([
+    { name: 'a.mp4', type: 'video/mp4', buffer: Buffer.from('a') },
+    { name: 'b.srt', type: 'text/plain', buffer: Buffer.from('b') },
+  ]);
+  await page.getByRole('status').filter({ hasText: '一次只能拖入一个' }).waitFor();
+
+  const sampleDir = await mkdtemp(join(tmpdir(), 'tc-drop-'));
+  const samplePath = join(sampleDir, 'drop-sample.mp4');
+  await new Promise((resolvePromise, reject) => {
+    const ffmpeg = spawn('ffmpeg', [
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=25:duration=1',
+      '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:duration=1',
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-movflags', '+faststart', samplePath,
+    ], { stdio: 'ignore', windowsHide: true });
+    ffmpeg.once('error', reject);
+    ffmpeg.once('close', code => (code === 0 ? resolvePromise() : reject(new Error(`ffmpeg 退出 ${code}`))));
+  });
+  await dropped('drop-sample.mp4', 'video/mp4', await readFile(samplePath));
+  await page.getByRole('status').filter({ hasText: '视频已导入' }).waitFor();
+  await page.waitForFunction(() => document.querySelector('#player').readyState >= 1);
+  assert.equal(await page.locator('#filename').textContent(), 'drop-sample.mp4');
+  assert.equal(await page.locator('#duration').textContent() !== '—', true);
+
+  await dropped('bad.srt', 'text/plain', Buffer.from('这不是字幕'));
+  await page.getByRole('status').filter({ hasText: '无效时间码' }).waitFor();
+  assert.equal(await page.locator('.row').count(), 0);
+  assert.equal(await page.locator('#filename').textContent(), 'drop-sample.mp4');
+
+  const clip = Buffer.from('1\n00:00:00,000 --> 00:00:00,200\n拖放进来的一句。\n');
+  await dropped('clip.srt', 'application/x-subrip', clip);
+  await page.getByRole('status').filter({ hasText: '已导入 1 个句段' }).waitFor();
+  await page.getByRole('button', { name: '拖放进来的一句。' }).waitFor();
+
+  const droppedDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: '保存项目' }).click();
+  const droppedProject = JSON.parse(await readFile(await (await droppedDownload).path(), 'utf8'));
+  await dropped('mismatch.json', 'application/json', Buffer.from(JSON.stringify({
+    ...droppedProject, source: { ...droppedProject.source, sha256: 'other' },
+  })));
+  await page.getByRole('status').filter({ hasText: '项目与当前视频不匹配' }).waitFor();
+  await page.getByRole('button', { name: '拖放进来的一句。' }).waitFor();
+  assert.match(await page.locator('#status').textContent(), /当前编辑未改动/);
+
+  await dropped('saved.json', 'application/json', Buffer.from(JSON.stringify(droppedProject)));
+  await page.getByRole('status').filter({ hasText: '转写稿、剪点和撤销记录已恢复' }).waitFor();
+
+  await page.getByRole('button', { name: '拖放进来的一句。' }).click();
+  await page.getByRole('button', { name: '剪掉区间' }).click();
+  await page.locator('.row.removed').waitFor();
+  page.once('dialog', async dialog => {
+    const message = dialog.message();
+    await dialog.dismiss();
+    assert.match(message, /替换转写稿会清空当前编辑/);
+  });
+  await dropped('clip.srt', 'application/x-subrip', clip);
+  assert.equal(await page.locator('.row.removed').count(), 1);
+
+  page.once('dialog', dialog => dialog.accept());
+  await dropped('clip.srt', 'application/x-subrip', clip);
+  await page.getByRole('status').filter({ hasText: '已导入 1 个句段' }).waitFor();
+  assert.equal(await page.locator('.row.removed').count(), 0);
+  assert.deepEqual(errors, []);
 
   if (process.env.WHISPER_TEST_INPUT && process.env.WHISPER_MODEL) {
     await page.locator('#video-file').setInputFiles(process.env.WHISPER_TEST_INPUT);
