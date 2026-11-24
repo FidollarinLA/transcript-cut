@@ -32,6 +32,7 @@ const web = new Map([
   ['/style.css', ['../web/style.css', 'text/css; charset=utf-8']],
   ['/core.js', ['../_build/js/release/build/core/core.js', 'text/javascript; charset=utf-8']],
   ['/edit-dirty.js', ['../web/edit-dirty.js', 'text/javascript; charset=utf-8']],
+  ['/suggestion-kind.js', ['../web/suggestion-kind.js', 'text/javascript; charset=utf-8']],
 ]);
 const at = path => fileURLToPath(new URL(path, import.meta.url));
 

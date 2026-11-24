@@ -13,6 +13,7 @@ import { calculateEdit } from '/edit-core.js';
 import { partialReview } from '/review-hint.js';
 import { restoreStatus } from '/restore-status.js';
 import { appendTrackDurationTip, time } from '/status-tip.js';
+import { suggestionFilters, suggestionMeta, summarizeSuggestions, visibleSuggestions } from '/suggestion-kind.js';
 import { classifyDrop } from '/drop-file.js';
 import { matchShortcut } from '/shortcuts.js';
 import { shortcutHelp } from '/shortcuts.js';
@@ -95,6 +96,7 @@ const state = {
 let rows = new Map();
 let activeRow;
 let savedSignature = editSignature(state.spans, state.history);
+let suggestionFilter = 'all';
 initTheme();
 
 function editIsDirty() {
@@ -205,6 +207,7 @@ function setAsset(asset, name, message) {
   player.src = asset.media_url;
   el('preview').checked = false;
   state.listenUntil = null;
+  suggestionFilter = 'all';
   replaceSpans(asset.spans);
   markClean();
   notice(appendTrackDurationTip(message, asset.video_duration_us, asset.audio_duration_us));
@@ -262,16 +265,28 @@ function render() {
   el('output-duration').textContent = time(plan.output_duration_us);
   el('cut-duration').textContent = time(asset.duration_us - plan.output_duration_us);
   const available = state.suggestions.filter(s => !covered(s.start_us, s.end_us));
+  const counts = summarizeSuggestions(available);
+  const visible = visibleSuggestions(available, suggestionFilter);
+  renderSuggestionFilters(counts);
   const suggestions = el('suggestions');
   suggestions.replaceChildren();
   el('suggestion-count').textContent = available.length ? `${available.length} 个待复听` : '';
-  if (!available.length) suggestions.append(element('p', 'empty-copy', spans.length ? '当前没有待复听的建议。' : '载入转写稿后可查看建议。'));
-  for (const s of available) {
-    const fallback = { filler: '口头禅', repeat: '重复句', pause: '长停顿' }[s.kind] || '建议';
-    const label = s.reason || fallback;
-    const button = element('button', '', `${label} · ${time(s.start_us)}`);
+  if (!visible.length) {
+    const empty = !spans.length
+      ? '载入转写稿后可查看建议。'
+      : available.length
+        ? '这一类里没有待复听的建议。'
+        : '当前没有待复听的建议。';
+    suggestions.append(element('p', 'empty-copy', empty));
+  }
+  for (const s of visible) {
+    const meta = suggestionMeta(s.kind);
+    const label = s.reason || meta.label;
+    const button = document.createElement('button');
     button.type = 'button';
+    button.className = `suggestion ${meta.id}`;
     button.title = `${label}（${time(s.start_us)} – ${time(s.end_us)}，点击复听并选定）`;
+    button.append(element('span', 'kind', meta.label), element('span', 'reason', `${label} · ${time(s.start_us)}`));
     button.addEventListener('click', () => {
       state.selection = {
         span: s.kind === 'pause' ? null : spans.find(span => span.id === s.span_id),
@@ -285,6 +300,28 @@ function render() {
   if (state.selection) showSelection();
   updatePlayback();
   controls();
+}
+
+function renderSuggestionFilters(counts) {
+  const bar = el('suggestion-filters');
+  if (!bar) return;
+  bar.hidden = state.spans.length === 0;
+  bar.dataset.filter = suggestionFilter;
+  bar.replaceChildren();
+  if (bar.hidden) return;
+  for (const filter of suggestionFilters) {
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.setAttribute('role', 'tab');
+    tab.setAttribute('aria-selected', String(suggestionFilter === filter.id));
+    const count = counts[filter.id] || 0;
+    tab.textContent = count ? `${filter.label} ${count}` : filter.label;
+    tab.onclick = () => {
+      suggestionFilter = filter.id;
+      render();
+    };
+    bar.append(tab);
+  }
 }
 
 function selectSpan(span, extend) {
@@ -537,15 +574,24 @@ function hideDropOverlay() {
   el('drop-overlay').hidden = true;
 }
 
+function blockModalDrag(event) {
+  if (!anyDialogOpen()) return false;
+  hideDropOverlay();
+  if (event?.dataTransfer) event.dataTransfer.dropEffect = 'none';
+  return true;
+}
+
 window.addEventListener('dragenter', event => {
   if (!fileDrag(event)) return;
   event.preventDefault();
+  if (blockModalDrag(event)) return;
   dragDepth += 1;
   el('drop-overlay').hidden = false;
 });
 window.addEventListener('dragover', event => {
   if (!fileDrag(event)) return;
   event.preventDefault();
+  if (blockModalDrag(event)) return;
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
 });
 window.addEventListener('dragleave', () => {
@@ -557,6 +603,7 @@ window.addEventListener('drop', event => {
   if (!fileDrag(event)) return;
   event.preventDefault();
   hideDropOverlay();
+  if (blockModalDrag(event)) return;
   const dropped = classifyDrop(event.dataTransfer?.files);
   if (dropped.error) {
     notice(dropped.error, true);

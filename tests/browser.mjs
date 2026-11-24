@@ -241,7 +241,9 @@ try {
   if (BROWSER_SCREENSHOT) await page.screenshot({ path: BROWSER_SCREENSHOT, fullPage: true });
 
   step = '拖放导入';
-  await page.goto(address);
+  const leaveForDrop = await captureDialogs('accept', () => page.goto(address));
+  assert.equal(leaveForDrop.length, 1);
+  assert.equal(leaveForDrop[0].type, 'beforeunload');
   await page.waitForFunction(() => document.documentElement.dataset.themeReady === 'true');
   await page.evaluate(() => {
     const transfer = new DataTransfer();
@@ -549,6 +551,146 @@ try {
   await page.waitForFunction(() => !document.querySelector('#correction').open);
   assert.equal(await page.locator('#selection').isHidden(), false);
   assert.equal(errors.length, errorsBeforeHelp);
+
+  step = '建议类型';
+  const suggestionTheme = async theme => {
+    const current = await page.evaluate(() => document.documentElement.dataset.theme);
+    if (current !== theme) await page.getByRole('button', { name: '主题', exact: true }).click();
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), theme);
+  };
+  await suggestionTheme('light');
+  const suggestionButtons = page.locator('#suggestions button.suggestion');
+  await suggestionButtons.first().waitFor();
+  assert.equal(await page.locator('#suggestions button.filler').count(), 1);
+  assert.equal(await page.locator('#suggestions button.repeat').count(), 1);
+  assert.equal(await page.locator('#suggestions button.pause').count(), 1);
+  assert.equal(await page.locator('#suggestion-count').textContent(), '3 个待复听');
+  assert.equal(await page.locator('#suggestions button.filler .kind').textContent(), '口头禅');
+  assert.equal(await page.locator('#suggestions button.repeat .kind').textContent(), '重复句');
+  assert.equal(await page.locator('#suggestions button.pause .kind').textContent(), '长停顿');
+  const kindPaint = await suggestionButtons.evaluateAll(nodes => nodes.map(node => getComputedStyle(node).backgroundColor));
+  assert.equal(new Set(kindPaint).size, 3);
+  const lightFiller = await page.locator('#suggestions button.filler').evaluate(node => getComputedStyle(node).backgroundColor);
+  assert.equal(await page.locator('#suggestion-filters').getAttribute('data-filter'), 'all');
+  assert.equal(await page.getByRole('tab', { name: '全部 3' }).getAttribute('aria-selected'), 'true');
+  const beforeFilterDuration = await page.locator('#output-duration').textContent();
+  const beforeFilterRemoved = await page.locator('.row.removed').count();
+  assert.equal(await leaveWouldPrompt(), true);
+  await page.getByRole('tab', { name: /^长停顿/ }).click();
+  assert.equal(await page.locator('#suggestions button.pause').count(), 1);
+  assert.equal(await page.locator('#suggestions button.filler').count(), 0);
+  assert.equal(await page.locator('#suggestions button.repeat').count(), 0);
+  assert.equal(await page.locator('#output-duration').textContent(), beforeFilterDuration);
+  assert.equal(await page.locator('.row.removed').count(), beforeFilterRemoved);
+  assert.equal(await leaveWouldPrompt(), true);
+  await page.locator('#suggestions button.pause').click();
+  assert.equal(await page.locator('#selection').isHidden(), false);
+  assert.equal(await page.locator('#start').inputValue(), '7.750');
+  assert.equal(await page.locator('#end').inputValue(), '9.750');
+  assert.match(await page.locator('#selected-text').textContent(), /长停顿/);
+  await page.getByRole('tab', { name: /^全部/ }).click();
+  assert.equal(await suggestionButtons.count(), 3);
+  if (process.env.SUGGESTION_SCREENSHOT_DIR) {
+    await page.locator('.suggestion-panel').screenshot({ path: `${process.env.SUGGESTION_SCREENSHOT_DIR}/suggestion-light.png` });
+  }
+  await suggestionTheme('dark');
+  const darkFiller = await page.locator('#suggestions button.filler').evaluate(node => getComputedStyle(node).backgroundColor);
+  assert.notEqual(darkFiller, lightFiller);
+  if (process.env.SUGGESTION_SCREENSHOT_DIR) {
+    await page.locator('.suggestion-panel').screenshot({ path: `${process.env.SUGGESTION_SCREENSHOT_DIR}/suggestion-dark.png` });
+  }
+  await suggestionTheme('light');
+
+  await page.getByRole('button', { name: /口头禅/ }).click();
+  await page.getByRole('button', { name: '剪掉区间' }).click();
+  await page.locator('.row.removed').waitFor();
+  assert.equal(await page.locator('#suggestions button.filler').count(), 0);
+  assert.equal(await page.locator('#suggestion-count').textContent(), '2 个待复听');
+  assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
+  await page.getByRole('tab', { name: '口头禅', exact: true }).click();
+  assert.equal(await page.locator('#suggestions .empty-copy').textContent(), '这一类里没有待复听的建议。');
+  assert.equal(await page.locator('#suggestion-count').textContent(), '2 个待复听');
+  assert.equal(await leaveWouldPrompt(), true);
+
+  step = '弹窗拖放与脏状态';
+  const dropName = await page.locator('#filename').textContent();
+  const dropDuration = await page.locator('#duration').textContent();
+  const dropOutput = await page.locator('#output-duration').textContent();
+  const dropRemoved = await page.locator('.row.removed').count();
+  await page.getByRole('button', { name: '快捷键', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#shortcuts-dialog').open);
+  const blocked = [];
+  const onBlocked = async dialog => {
+    blocked.push(dialog.message());
+    await dialog.dismiss();
+  };
+  page.on('dialog', onBlocked);
+  try {
+    await page.evaluate(() => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(['x'], 'while-open.txt', { type: 'text/plain' }));
+      document.body.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    });
+    assert.equal(await page.locator('#drop-overlay').isHidden(), true);
+    assert.equal(await page.locator('#shortcuts-dialog').evaluate(node => node.open), true);
+    await dropped('drop-sample.mp4', 'video/mp4', await readFile(samplePath));
+    assert.doesNotMatch(await page.locator('#status').textContent(), /正在读取|视频已导入|已取消/);
+    assert.equal(await page.locator('#drop-overlay').isHidden(), true);
+    assert.equal(await page.locator('#shortcuts-dialog').evaluate(node => node.open), true);
+    assert.equal(await page.locator('#filename').textContent(), dropName);
+    assert.equal(await page.locator('#duration').textContent(), dropDuration);
+    assert.equal(await page.locator('#output-duration').textContent(), dropOutput);
+    assert.equal(await page.locator('.row.removed').count(), dropRemoved);
+  } finally {
+    page.off('dialog', onBlocked);
+  }
+  assert.equal(blocked.length, 0);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('#shortcuts-dialog').open);
+
+  const dirtyVideo = await captureDialogs('dismiss', async () => {
+    await dropped('drop-sample.mp4', 'video/mp4', await readFile(samplePath));
+    await page.getByRole('status').filter({ hasText: '已取消，当前编辑未改动' }).waitFor();
+  });
+  assert.equal(dirtyVideo.length, 1);
+  assert.equal(dirtyVideo[0].type, 'confirm');
+  assert.equal(dirtyVideo[0].message, '当前编辑尚未保存，继续会清空这些编辑，要继续吗？');
+  assert.equal(await page.locator('#filename').textContent(), dropName);
+  assert.equal(await page.locator('#duration').textContent(), dropDuration);
+  assert.equal(await page.locator('#output-duration').textContent(), dropOutput);
+  assert.equal(await page.locator('.row.removed').count(), dropRemoved);
+  assert.equal(await page.locator('#drop-overlay').isHidden(), true);
+  assert.equal(await leaveWouldPrompt(), true);
+
+  const dirtyProject = await captureDialogs('dismiss', async () => {
+    await dropped('empty.json', 'application/json', Buffer.from('{}'));
+    await page.getByRole('status').filter({ hasText: '已取消，当前编辑未改动' }).waitFor();
+  });
+  assert.equal(dirtyProject.length, 1);
+  assert.equal(dirtyProject[0].type, 'confirm');
+  assert.equal(dirtyProject[0].message, '替换转写稿会清空当前编辑，继续吗？');
+  assert.equal(await page.locator('#filename').textContent(), dropName);
+  assert.equal(await page.locator('.row.removed').count(), dropRemoved);
+  assert.equal(await page.locator('#output-duration').textContent(), dropOutput);
+  assert.equal(await leaveWouldPrompt(), true);
+
+  const cleanDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: '保存项目' }).click();
+  await cleanDownload;
+  await page.getByRole('status').filter({ hasText: '项目文件已生成' }).waitFor();
+  assert.equal(await leaveWouldPrompt(), false);
+  await page.getByRole('tab', { name: /^长停顿/ }).click();
+  assert.equal(await page.locator('#suggestion-filters').getAttribute('data-filter'), 'pause');
+  assert.equal(await leaveWouldPrompt(), false);
+  const cleanDrop = await captureDialogs('accept', async () => {
+    await dropped('drop-sample.mp4', 'video/mp4', await readFile(samplePath));
+    await page.getByRole('status').filter({ hasText: '视频已导入' }).waitFor();
+  });
+  assert.equal(cleanDrop.length, 0);
+  assert.equal(await page.locator('#filename').textContent(), 'drop-sample.mp4');
+  assert.equal(await page.locator('#suggestion-filters').getAttribute('data-filter'), 'all');
+  assert.equal(await page.locator('#drop-overlay').isHidden(), true);
+  assert.equal(await leaveWouldPrompt(), false);
 
   console.log('浏览器验收通过，剪辑、预览、字幕导出、保存恢复、源文件不匹配校验均可用');
 } catch (error) {

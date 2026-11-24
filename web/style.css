@@ -59,6 +59,15 @@
   --keep: #2f9d62;
   --cut-a: #f3c1b4;
   --cut-b: #c4563a;
+  --kind-filler-bg: #f6e4c4;
+  --kind-filler-ink: #6b3e0a;
+  --kind-filler-line: #a56b16;
+  --kind-repeat-bg: #d7e6f6;
+  --kind-repeat-ink: #17375e;
+  --kind-repeat-line: #3b6ea5;
+  --kind-pause-bg: #e7e3f4;
+  --kind-pause-ink: #3a3158;
+  --kind-pause-line: #6d628f;
   font-family: var(--font-sans);
   font-synthesis: none;
   color: var(--ink);
@@ -67,6 +76,15 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
+  --kind-filler-bg: #3d2c16;
+  --kind-filler-ink: #f6d7a8;
+  --kind-filler-line: #d7a15a;
+  --kind-repeat-bg: #173044;
+  --kind-repeat-ink: #d5e6f8;
+  --kind-repeat-line: #7eb0dc;
+  --kind-pause-bg: #2c2840;
+  --kind-pause-ink: #e4def6;
+  --kind-pause-line: #a398c8;
   --shadow-color: 220 40% 2%;
   --shadow-strength: 25%;
   --bg: #0e1411;
@@ -96,6 +114,15 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
+    --kind-filler-bg: #3d2c16;
+    --kind-filler-ink: #f6d7a8;
+    --kind-filler-line: #d7a15a;
+    --kind-repeat-bg: #173044;
+    --kind-repeat-ink: #d5e6f8;
+    --kind-repeat-line: #7eb0dc;
+    --kind-pause-bg: #2c2840;
+    --kind-pause-ink: #e4def6;
+    --kind-pause-line: #a398c8;
     --shadow-color: 220 40% 2%;
     --shadow-strength: 25%;
     --bg: #0e1411;
@@ -497,12 +524,59 @@ video { width: 100%; height: 100%; max-height: 54vh; object-fit: contain; backgr
 .selection label { font-size: .76rem; color: var(--muted); }
 .selection .actions { align-items: flex-end; }
 .suggestion-panel { margin-top: var(--size-4); }
+.suggestion-filters { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 10px; }
+.suggestion-filters button {
+  background: transparent;
+  color: var(--muted);
+  border-color: var(--line);
+  box-shadow: none;
+  min-height: 30px;
+  padding: 4px 10px;
+}
+.suggestion-filters button[aria-selected="true"] {
+  background: var(--chip);
+  color: var(--ink);
+  border-color: var(--focus);
+}
 .suggestions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 16px; }
 .suggestions .empty-copy { flex: 1 1 100%; margin: 0; padding: 2px 0 4px; }
 .suggestions button {
   background: var(--chip);
   border-radius: var(--radius-round);
   box-shadow: none;
+}
+.suggestions button.suggestion {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.suggestions .kind {
+  font-size: .72rem;
+  font-weight: 700;
+  line-height: 1.3;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-round);
+}
+.suggestions button.filler {
+  background: var(--kind-filler-bg);
+  color: var(--kind-filler-ink);
+  border-color: var(--kind-filler-line);
+}
+.suggestions button.repeat {
+  background: var(--kind-repeat-bg);
+  color: var(--kind-repeat-ink);
+  border-color: var(--kind-repeat-line);
+}
+.suggestions button.pause {
+  background: var(--kind-pause-bg);
+  color: var(--kind-pause-ink);
+  border-color: var(--kind-pause-line);
+}
+.suggestions button.other {
+  background: var(--chip);
+  color: var(--ink);
+  border-color: var(--line);
 }
 .status, .downloads {
   margin-bottom: var(--size-3);
