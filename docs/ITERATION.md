@@ -120,3 +120,14 @@
   - `tests/service.test.mjs` 验证真实导出任务返回 `stage: 'write'` 且最终进度为 1。
   - `tests/browser.mjs` 拦截轮询模拟编码中阶段横幅展示、模拟失败后横幅清除与错误提示，并最终跑通真实导出全流程。
 - 本轮不做：基于编码帧数的真实百分比精算；任务队列管理；多任务并发处理。
+
+## 公开架构说明
+
+- 基线：文档提交 `d9a6e5e`，父提交为已合并 PR #12 的 `main` `d143538`。
+- 目标：在 README 写清现有分层，并把结构图、编辑与任务链路图放进仓库；补上已经落地的编辑器操作，避免把核心库的 `wasm-gc` 验证写成浏览器里的第二套运行时。
+- 验收：
+  - 图中的剪辑路径是 `web/app.js` → `web/edit-core.js` → 由 `scripts/build.mjs` 产出的 `core` `dispatch`。
+  - `server/index.mjs` 标为只监听 `127.0.0.1`，媒体走 `server/media.mjs`；Whisper 用虚线标明需自备模型。
+  - `#job-banner` 与 `#status` 分工和现有界面一致。
+  - 保留本文此前各节，不改产品代码。
+- 本轮不做：词级剪辑、多机位、`moon publish`，以及把 Windows、触屏或无模型环境下的真实转写写成已验收。

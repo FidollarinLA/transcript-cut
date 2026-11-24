@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 520" role="img" aria-labelledby="title desc">
+  <title id="title">文字剪视频的本机结构</title>
+  <desc id="desc">浏览器页面经 edit-core.js 调用构建出的 core.js。本机 server 只监听 127.0.0.1，并用同一条路径核对剪辑计划。FFmpeg 为实线，Whisper 为需自备模型的虚线。</desc>
+  <style>
+    text { font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; fill: #1c2923; }
+    .card { fill: #f7f8f4; stroke: #1f7a45; stroke-width: 1.5; }
+    .muted { fill: #e7f3d2; stroke: #1f7a45; stroke-width: 1.5; }
+    .dash { fill: #f7f8f4; stroke: #5c6b62; stroke-width: 1.5; stroke-dasharray: 6 4; }
+    .label { font-size: 15px; font-weight: 700; }
+    .small { font-size: 12px; fill: #3d4a43; }
+    .arrow { stroke: #1f7a45; stroke-width: 1.6; fill: none; }
+  </style>
+  <rect width="960" height="520" fill="#e6ece7"/>
+  <text x="24" y="32" class="label">只在本机 127.0.0.1 运行</text>
+  <text x="24" y="52" class="small">编辑器加载的是 JS dispatch。js 与 wasm-gc 用来检查和测试核心库，页面不另起 WASM 运行时。</text>
+
+  <rect x="24" y="76" width="250" height="92" rx="10" class="card"/>
+  <text x="40" y="104" class="label">web/app.js</text>
+  <text x="40" y="126" class="small">以及页面上的静态模块</text>
+  <text x="40" y="146" class="small">快捷键、拖放、建议、脏状态、阶段文案</text>
+
+  <rect x="354" y="76" width="250" height="92" rx="10" class="muted"/>
+  <text x="370" y="104" class="label">web/edit-core.js</text>
+  <text x="370" y="126" class="small">calculateEdit(dispatch, request)</text>
+  <text x="370" y="146" class="small">微秒时标以十进制字符串往返</text>
+
+  <rect x="684" y="76" width="252" height="92" rx="10" class="card"/>
+  <text x="700" y="104" class="label">core.js 的 dispatch</text>
+  <text x="700" y="126" class="small">由 core/ 编译而来</text>
+  <text x="700" y="146" class="small">计划、字幕重排、三类建议</text>
+
+  <path d="M274 122 H354" class="arrow"/>
+  <path d="M604 122 H684" class="arrow"/>
+  <path d="M348 116 l8 6 l-8 6" class="arrow" stroke-linejoin="round"/>
+  <path d="M678 116 l8 6 l-8 6" class="arrow"/>
+
+  <rect x="684" y="196" width="252" height="72" rx="10" class="muted"/>
+  <text x="700" y="224" class="label">scripts/build.mjs</text>
+  <text x="700" y="246" class="small">把 core/ 编成上面的 JS 产物</text>
+  <path d="M810 196 V168" class="arrow"/>
+
+  <rect x="24" y="300" width="300" height="120" rx="10" class="card"/>
+  <text x="40" y="330" class="label">server/index.mjs</text>
+  <text x="40" y="352" class="small">只监听 127.0.0.1</text>
+  <text x="40" y="372" class="small">提供页面、导入、作业和下载</text>
+  <text x="40" y="392" class="small">导出前也走 edit-core.js</text>
+
+  <rect x="390" y="300" width="250" height="120" rx="10" class="card"/>
+  <text x="406" y="330" class="label">server/media.mjs</text>
+  <text x="406" y="352" class="small">探测、样例、转写、导出</text>
+  <text x="406" y="372" class="small">作业文件在系统临时目录</text>
+  <text x="406" y="392" class="small">完成后提供 MP4 与 SRT</text>
+
+  <rect x="684" y="300" width="252" height="64" rx="10" class="card"/>
+  <text x="700" y="328" class="label">FFmpeg / ffprobe</text>
+  <text x="700" y="348" class="small">导入校验与成片编码</text>
+
+  <rect x="684" y="384" width="252" height="64" rx="10" class="dash"/>
+  <text x="700" y="412" class="label">Whisper 滤镜</text>
+  <text x="700" y="432" class="small">虚线：需自备模型才启用</text>
+
+  <path d="M324 360 H390" class="arrow"/>
+  <path d="M640 332 H684" class="arrow"/>
+  <path d="M640 416 H684" class="arrow" stroke="#5c6b62" stroke-dasharray="6 4"/>
+</svg>
