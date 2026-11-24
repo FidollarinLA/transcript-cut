@@ -523,7 +523,7 @@ video { width: 100%; height: 100%; max-height: 54vh; object-fit: contain; backgr
   border-radius: 8px;
 }
 .selection label { font-size: .76rem; color: var(--muted); }
-.selection .actions { align-items: flex-end; }
+.selection .actions { align-items: flex-end; flex-wrap: wrap; min-width: 0; }
 .suggestion-panel { margin-top: var(--size-4); }
 .suggestion-filters { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 10px; }
 .suggestion-filters button {
