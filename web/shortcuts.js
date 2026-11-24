@@ -34,6 +34,8 @@ export const shortcutHelp = [
   {
     title: '剪辑',
     rows: [
+      { keys: ['I'], actions: ['mark-start'], label: '把当前位置设为起点' },
+      { keys: ['O'], actions: ['mark-end'], label: '把当前位置设为终点' },
       { keys: ['Delete', 'Backspace'], actions: ['cut'], label: '剪掉当前选区' },
       { keys: ['Ctrl + Z', 'Cmd + Z'], actions: ['undo'], label: '撤销' },
       { keys: ['Ctrl + Y', 'Ctrl + Shift + Z', 'Cmd + Shift + Z'], actions: ['redo'], label: '重做' },
@@ -79,6 +81,12 @@ export function matchShortcut(event, context = {}) {
   }
   if (key === 'Delete' || key === 'Backspace') {
     return 'cut';
+  }
+  if (!event.shiftKey && (key === 'i' || key === 'I')) {
+    return 'mark-start';
+  }
+  if (!event.shiftKey && (key === 'o' || key === 'O')) {
+    return 'mark-end';
   }
   if (key === 'ArrowUp') {
     return event.shiftKey ? 'extend-prev' : 'select-prev';
