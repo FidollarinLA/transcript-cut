@@ -488,6 +488,7 @@ video { width: 100%; height: 100%; max-height: 54vh; object-fit: contain; backgr
 }
 .row:hover, .row.selected { background: var(--row-hover); }
 .row.selected { box-shadow: inset 3px 0 0 var(--focus); }
+.row.active:not(.selected):not(:hover) { background: color-mix(in srgb, var(--focus) 16%, transparent); }
 .row.active .time { color: var(--focus); font-weight: 700; }
 .row.removed .line { text-decoration: line-through; color: var(--struck); }
 .row .line { overflow-wrap: anywhere; }
