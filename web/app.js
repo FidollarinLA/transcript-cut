@@ -18,6 +18,7 @@ import { jobPollError, jobStageText } from '/job-status.js';
 import { classifyDrop } from '/drop-file.js';
 import { seekUsInBar } from '/seek-bar.js';
 import { markRangeFromPlayhead } from '/mark-range.js';
+import { editActionNotice } from '/edit-notice.js';
 import { matchShortcut } from '/shortcuts.js';
 import { shortcutHelp } from '/shortcuts.js';
 
@@ -554,7 +555,12 @@ function apply(action, operation) {
   try {
     recalculate(action, operation);
     const review = partialReview(state.spans, state.plan.partial_span_ids);
-    notice(review ? review.message : '');
+    notice(editActionNotice({
+      action,
+      operation,
+      reviewMessage: review?.message || '',
+      outputDurationLabel: time(state.plan.output_duration_us),
+    }));
   } catch (error) {
     notice(error.message, true);
   }
