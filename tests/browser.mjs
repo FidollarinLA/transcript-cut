@@ -243,12 +243,16 @@ try {
   await page.waitForFunction(() => document.querySelector('#player').currentTime >= 2);
   await page.getByRole('button', { name: '剪掉区间' }).click();
   assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
+  assert.match(await page.locator('#status').textContent(), /已剪掉区间/);
+  assert.equal(await page.locator('#status').evaluate(node => node.classList.contains('error')), false);
   assert.equal(await page.locator('.row.removed').count(), 1);
   assert.equal(await page.locator('#review').isHidden(), true);
   await page.getByRole('button', { name: '撤销' }).click();
   assert.equal(await page.locator('#output-duration').textContent(), '00:12.000');
+  assert.match(await page.locator('#status').textContent(), /已撤销/);
   await page.getByRole('button', { name: '重做' }).click();
   assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
+  assert.match(await page.locator('#status').textContent(), /已重做/);
 
   // 验证时间轴切段点击跳转定位
   const timelineBars = page.locator('#timeline span');
@@ -285,6 +289,8 @@ try {
   await page.locator('#correction-text').fill('最后一句字幕已更正。');
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await page.getByRole('button', { name: /最后一句字幕已更正/ }).waitFor();
+  assert.match(await page.locator('#status').textContent(), /文字已修正/);
+  assert.equal(await page.locator('#status').evaluate(node => node.classList.contains('error')), false);
 
   await page.locator('#preview').check();
   await page.evaluate(async () => {
@@ -361,6 +367,7 @@ try {
   await page.getByRole('button', { name: '定位 00:10.000' }).click();
   await page.waitForFunction(() => document.querySelector('#player').currentTime >= 10);
   assert.match(await page.locator('#status').textContent(), /1 句被切点截断/);
+  assert.doesNotMatch(await page.locator('#status').textContent(), /已剪掉|已撤销|已重做|文字已修正/);
   await page.getByRole('button', { name: '导出成片', exact: true }).click();
   const partialSrt = page.getByRole('link', { name: '下载 SRT' });
   await partialSrt.waitFor();

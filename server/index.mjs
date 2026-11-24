@@ -36,6 +36,7 @@ const web = new Map([
   ['/job-status.js', ['../web/job-status.js', 'text/javascript; charset=utf-8']],
   ['/seek-bar.js', ['../web/seek-bar.js', 'text/javascript; charset=utf-8']],
   ['/mark-range.js', ['../web/mark-range.js', 'text/javascript; charset=utf-8']],
+  ['/edit-notice.js', ['../web/edit-notice.js', 'text/javascript; charset=utf-8']],
 ]);
 const at = path => fileURLToPath(new URL(path, import.meta.url));
 
