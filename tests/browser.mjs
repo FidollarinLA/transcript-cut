@@ -692,6 +692,157 @@ try {
   assert.equal(await page.locator('#drop-overlay').isHidden(), true);
   assert.equal(await leaveWouldPrompt(), false);
 
+  step = '窄屏与分屏';
+  const fitsViewport = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+  const headerSharesRow = () => page.evaluate(() => {
+    const brand = document.querySelector('.brand').getBoundingClientRect();
+    const actions = document.querySelector('.top .actions').getBoundingClientRect();
+    return Math.abs(actions.top - brand.top) < 8;
+  });
+  const insideViewport = locator => locator.evaluate(node => {
+    const rect = node.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0
+      && rect.top >= -1 && rect.left >= -1
+      && rect.bottom <= window.innerHeight + 1
+      && rect.right <= window.innerWidth + 1;
+  });
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.top')).flexWrap), 'nowrap');
+  assert.equal(await headerSharesRow(), true);
+  const desktopLeave = await captureDialogs('accept', () => page.setViewportSize({ width: 768, height: 900 }));
+  assert.equal(desktopLeave.length, 0);
+  const mediumEnter = await captureDialogs('accept', () => page.goto(address));
+  assert.equal(mediumEnter.length, 0);
+  assert.equal(mediumEnter.every(dialog => dialog.type === 'beforeunload'), true);
+  await page.waitForFunction(() => document.documentElement.dataset.themeReady === 'true');
+  await suggestionTheme('light');
+  await page.getByRole('button', { name: '打开样例' }).click();
+  await page.locator('.row').first().waitFor();
+  await page.locator('#suggestions button.pause').waitFor();
+  assert.equal(await headerSharesRow(), false);
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.top')).position), 'sticky');
+  assert.equal(await fitsViewport(), true);
+  if (process.env.LAYOUT_SCREENSHOT_DIR) {
+    await page.screenshot({ path: `${process.env.LAYOUT_SCREENSHOT_DIR}/layout-medium-light.png`, fullPage: true });
+  }
+
+  const narrowEnter = await captureDialogs('accept', () => page.setViewportSize({ width: 390, height: 844 }));
+  assert.equal(narrowEnter.length, 0);
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.top')).position), 'static');
+  assert.equal(await fitsViewport(), true);
+  assert.equal(await leaveWouldPrompt(), false);
+  await page.getByRole('tab', { name: /^长停顿/ }).click();
+  assert.equal(await page.locator('#suggestion-filters').getAttribute('data-filter'), 'pause');
+  assert.equal(await page.locator('#suggestions button.pause').count(), 1);
+  assert.equal(await page.locator('#output-duration').textContent(), '00:12.000');
+  assert.equal(await leaveWouldPrompt(), false);
+  const pauseKind = await page.locator('#suggestions button.pause .kind').evaluate(node => ({
+    whiteSpace: getComputedStyle(node).whiteSpace,
+    fits: node.scrollWidth <= node.getBoundingClientRect().width + 1,
+  }));
+  assert.equal(pauseKind.whiteSpace, 'nowrap');
+  assert.equal(pauseKind.fits, true);
+  assert.equal(await fitsViewport(), true);
+  if (process.env.LAYOUT_SCREENSHOT_DIR) {
+    await page.screenshot({ path: `${process.env.LAYOUT_SCREENSHOT_DIR}/layout-narrow-light.png`, fullPage: true });
+  }
+
+  await page.locator('#suggestions button.pause').click();
+  assert.equal(await page.locator('#start').inputValue(), '7.750');
+  assert.equal(await page.locator('#end').inputValue(), '9.750');
+  await page.getByRole('button', { name: '剪掉区间' }).click();
+  assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
+  assert.equal(await leaveWouldPrompt(), true);
+  await page.getByRole('button', { name: '撤销' }).click();
+  assert.equal(await page.locator('#output-duration').textContent(), '00:12.000');
+  assert.equal(await leaveWouldPrompt(), true);
+  await page.getByRole('tab', { name: /^全部/ }).click();
+  assert.equal(await page.locator('#suggestions button').count(), 3);
+  assert.equal(await fitsViewport(), true);
+
+  await page.locator('#start').fill('10.500');
+  await page.locator('#end').fill('11.500');
+  await page.getByRole('button', { name: '剪掉区间' }).click();
+  await page.locator('#review').waitFor();
+  const locate = page.locator('#review-locate');
+  await locate.scrollIntoViewIfNeeded();
+  assert.equal(await page.locator('#review').isHidden(), false);
+  assert.equal(await insideViewport(locate), true);
+  assert.equal(await fitsViewport(), true);
+  await page.locator('.row').last().click();
+  await page.getByRole('button', { name: '修正文字' }).click();
+  await page.waitForFunction(() => document.querySelector('#correction').open);
+  assert.equal(await insideViewport(page.locator('#correction-text')), true);
+  assert.equal(await insideViewport(page.getByRole('button', { name: '保存', exact: true })), true);
+  assert.equal(await fitsViewport(), true);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('#correction').open);
+
+  const narrowName = await page.locator('#filename').textContent();
+  const narrowDuration = await page.locator('#duration').textContent();
+  const narrowOutput = await page.locator('#output-duration').textContent();
+  const narrowRemoved = await page.locator('.row.removed').count();
+  await page.getByRole('button', { name: '快捷键', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#shortcuts-dialog').open);
+  assert.equal(await insideViewport(page.locator('#shortcuts-dialog-title')), true);
+  assert.equal(await insideViewport(helpDialog.locator('p').first()), true);
+  assert.equal(await insideViewport(page.getByRole('button', { name: '关闭', exact: true })), true);
+  assert.equal(await fitsViewport(), true);
+  if (process.env.LAYOUT_SCREENSHOT_DIR) {
+    await page.screenshot({ path: `${process.env.LAYOUT_SCREENSHOT_DIR}/layout-narrow-shortcuts-light.png` });
+  }
+  const narrowBlocked = [];
+  const onNarrowBlocked = async dialog => {
+    narrowBlocked.push(dialog.message());
+    await dialog.dismiss();
+  };
+  page.on('dialog', onNarrowBlocked);
+  try {
+    await dropped('drop-sample.mp4', 'video/mp4', await readFile(samplePath));
+    assert.doesNotMatch(await page.locator('#status').textContent(), /正在读取|视频已导入|已取消/);
+    assert.equal(await helpDialog.evaluate(node => node.open), true);
+    assert.equal(await page.locator('#drop-overlay').isHidden(), true);
+    assert.equal(await page.locator('#filename').textContent(), narrowName);
+  } finally {
+    page.off('dialog', onNarrowBlocked);
+  }
+  assert.equal(narrowBlocked.length, 0);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('#shortcuts-dialog').open);
+  const narrowDirtyVideo = await captureDialogs('dismiss', async () => {
+    await dropped('drop-sample.mp4', 'video/mp4', await readFile(samplePath));
+    await page.getByRole('status').filter({ hasText: '已取消，当前编辑未改动' }).waitFor();
+  });
+  assert.equal(narrowDirtyVideo.length, 1);
+  assert.equal(narrowDirtyVideo[0].type, 'confirm');
+  assert.equal(narrowDirtyVideo[0].message, '当前编辑尚未保存，继续会清空这些编辑，要继续吗？');
+  assert.equal(await page.locator('#filename').textContent(), narrowName);
+  assert.equal(await page.locator('#duration').textContent(), narrowDuration);
+  assert.equal(await page.locator('#output-duration').textContent(), narrowOutput);
+  assert.equal(await page.locator('.row.removed').count(), narrowRemoved);
+  assert.equal(await leaveWouldPrompt(), true);
+
+  await suggestionTheme('dark');
+  await page.locator('.workspace').scrollIntoViewIfNeeded();
+  if (process.env.LAYOUT_SCREENSHOT_DIR) {
+    await page.screenshot({ path: `${process.env.LAYOUT_SCREENSHOT_DIR}/layout-narrow-dark.png`, fullPage: true });
+  }
+  await page.getByRole('button', { name: '快捷键', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#shortcuts-dialog').open);
+  assert.equal(await insideViewport(page.locator('#shortcuts-dialog-title')), true);
+  assert.equal(await insideViewport(page.getByRole('button', { name: '关闭', exact: true })), true);
+  if (process.env.LAYOUT_SCREENSHOT_DIR) {
+    await page.screenshot({ path: `${process.env.LAYOUT_SCREENSHOT_DIR}/layout-narrow-shortcuts-dark.png` });
+  }
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('#shortcuts-dialog').open);
+  await suggestionTheme('light');
+
+  const restored = await captureDialogs('accept', () => page.setViewportSize({ width: 1280, height: 900 }));
+  assert.equal(restored.length, 0);
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.top')).flexWrap), 'nowrap');
+  assert.equal(await headerSharesRow(), true);
+  assert.equal(await fitsViewport(), true);
+
   console.log('浏览器验收通过，剪辑、预览、字幕导出、保存恢复、源文件不匹配校验均可用');
 } catch (error) {
   console.error(`浏览器验收失败于「${step}」：${error.message}`);
