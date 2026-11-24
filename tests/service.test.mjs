@@ -37,12 +37,15 @@ test('本机 API 导入、对照原始媒体、导出 MP4/SRT 并重试', { time
   async function waitJob(id) {
     for (let attempts = 0; attempts < 400; attempts++) {
       const status = await (await fetch(`${base}/api/jobs/${id}`)).json();
+      assert.equal(typeof status.stage, 'string');
+      assert.notEqual(status.stage, '');
       if (status.state !== 'running') {
         assert.equal(status.state, 'done', JSON.stringify(status));
         assert.equal(status.progress, 1, JSON.stringify(status));
         return status;
       }
       assert(typeof status.progress === 'number' && status.progress >= 0 && status.progress <= 1);
+      assert.match(status.stage, /^(check|encode|write|transcribe|finish)$/);
       await delay(150);
     }
     assert.fail('媒体处理超时');
@@ -73,6 +76,8 @@ test('本机 API 导入、对照原始媒体、导出 MP4/SRT 并重试', { time
   const { id } = await post(endpoint, request, 202);
   await post(endpoint, request, 400);
   const job = await waitJob(id);
+  assert.equal(job.kind, 'export');
+  assert.equal(job.stage, 'write');
   assert.equal(job.result.duration_us, 9_000_000);
   const movieURL = `${base}/api/jobs/${id}/cut.mp4`;
   const movie = await fetch(movieURL);

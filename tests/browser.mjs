@@ -843,6 +843,154 @@ try {
   assert.equal(await headerSharesRow(), true);
   assert.equal(await fitsViewport(), true);
 
+  step = '任务阶段';
+  const jobLeave = await captureDialogs('accept', () => page.goto(address));
+  assert.equal(jobLeave.length, 1);
+  assert.equal(jobLeave[0].type, 'beforeunload');
+  await page.waitForFunction(() => document.documentElement.dataset.themeReady === 'true');
+  await suggestionTheme('light');
+  await page.getByRole('button', { name: '打开样例' }).click();
+  await page.locator('.row').first().waitFor();
+  const jobUrls = [];
+  let jobMode = 'pass';
+  const fulfillJob = body => ({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(body),
+  });
+  await page.route(/\/api\/jobs\/[0-9a-f-]{36}$/, async route => {
+    const url = route.request().url();
+    jobUrls.push(url);
+    if (jobMode === 'encode') {
+      return route.fulfill(fulfillJob({
+        id: 'simulated', kind: 'export', state: 'running', progress: 0.2, stage: 'encode',
+      }));
+    }
+    if (jobMode === 'fail') {
+      return route.fulfill(fulfillJob({ state: 'failed', error: '导出未能完成', progress: 0.2, stage: 'encode' }));
+    }
+    if (jobMode === 'text') return route.fulfill({ status: 200, contentType: 'text/plain', body: 'not-json' });
+    if (jobMode === 'abort') return route.abort('failed');
+    return route.continue();
+  });
+  const waitServerJob = async () => {
+    jobMode = 'pass';
+    const url = jobUrls.at(-1);
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const status = await (await page.request.get(url)).json();
+      if (status.state && status.state !== 'running') return status;
+      await page.waitForTimeout(200);
+    }
+    throw new Error('服务端导出没有结束');
+  };
+  const exportButton = page.getByRole('button', { name: '导出成片', exact: true });
+  const statusRoles = () => page.evaluate(() => [...document.querySelectorAll('[role="status"]')].map(node => node.id));
+
+  step = '任务阶段（模拟运行中）';
+  jobMode = 'encode';
+  const runningExport = exportButton.click();
+  await page.locator('#job-text').filter({ hasText: '正在编码成片，完成时间不确定' }).waitFor();
+  assert.equal(await page.locator('#job-note').textContent(), '仍可继续编辑。');
+  assert.equal(await page.locator('#job-banner').isHidden(), false);
+  assert.doesNotMatch(await page.locator('#job-banner').innerText(), /%/);
+  assert.equal(await page.locator('#job-wait').getAttribute('aria-valuenow'), null);
+  assert.equal(await page.locator('#job-wait').getAttribute('aria-valuemin'), null);
+  assert.equal(await page.locator('#job-wait').getAttribute('aria-valuemax'), null);
+  assert.equal(await page.locator('#job-wait').getAttribute('aria-valuetext'), '完成时间不确定');
+  assert.deepEqual(await statusRoles(), ['status']);
+  assert.equal(await exportButton.isDisabled(), true);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await page.locator('#job-wait').evaluate(node => getComputedStyle(node, '::before').animationName), 'none');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  if (process.env.JOB_SCREENSHOT_DIR) {
+    await page.screenshot({ path: `${process.env.JOB_SCREENSHOT_DIR}/job-desktop-light.png` });
+  }
+  await suggestionTheme('dark');
+  if (process.env.JOB_SCREENSHOT_DIR) {
+    await page.screenshot({ path: `${process.env.JOB_SCREENSHOT_DIR}/job-desktop-dark.png` });
+  }
+  await suggestionTheme('light');
+  const narrowJob = await captureDialogs('accept', () => page.setViewportSize({ width: 390, height: 844 }));
+  assert.equal(narrowJob.length, 0);
+  assert.equal(await fitsViewport(), true);
+  if (process.env.JOB_SCREENSHOT_DIR) {
+    await page.screenshot({ path: `${process.env.JOB_SCREENSHOT_DIR}/job-narrow-light.png` });
+  }
+  await suggestionTheme('dark');
+  if (process.env.JOB_SCREENSHOT_DIR) {
+    await page.screenshot({ path: `${process.env.JOB_SCREENSHOT_DIR}/job-narrow-dark.png` });
+  }
+  await suggestionTheme('light');
+  const restoreJobViewport = await captureDialogs('accept', () => page.setViewportSize({ width: 1280, height: 900 }));
+  assert.equal(restoreJobViewport.length, 0);
+
+  await page.locator('.row').nth(1).click();
+  await page.getByRole('button', { name: '剪掉区间' }).click();
+  await page.locator('.row.removed').waitFor();
+  assert.equal(await page.locator('#job-text').textContent(), '正在编码成片，完成时间不确定');
+  assert.doesNotMatch(await page.locator('#status').textContent(), /%|正在编码/);
+  assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
+  jobMode = 'pass';
+  await runningExport;
+  await page.getByRole('status').filter({ hasText: '导出完成' }).waitFor();
+  assert.equal(await page.locator('#job-banner').isHidden(), true);
+  assert.match(await page.locator('#export-version').textContent(), /上一版成片/);
+  await page.getByRole('link', { name: '下载 SRT' }).waitFor();
+  assert.doesNotMatch(await page.locator('#status').textContent(), /%/);
+  assert.equal(await exportButton.isDisabled(), false);
+  const finished = await waitServerJob();
+  assert.equal(finished.state, 'done');
+  assert.equal(finished.progress, 1);
+  assert.equal(finished.stage, 'write');
+
+  step = '任务阶段（模拟失败）';
+  jobMode = 'fail';
+  await exportButton.click();
+  await page.getByRole('status').filter({ hasText: '导出未能完成' }).waitFor();
+  assert.equal(await page.locator('#status').evaluate(node => node.classList.contains('error')), true);
+  assert.equal(await page.locator('#job-banner').isHidden(), true);
+  assert.equal(await exportButton.isDisabled(), false);
+  const failedOnServer = await waitServerJob();
+  assert.equal(failedOnServer.state, 'done');
+  assert.equal(failedOnServer.stage, 'write');
+
+  step = '任务阶段（模拟无法读取）';
+  jobMode = 'text';
+  await exportButton.click();
+  await page.getByRole('status').filter({ hasText: '任务状态暂时无法读取' }).waitFor();
+  assert.equal(await page.locator('#job-banner').isHidden(), true);
+  assert.equal(await exportButton.isDisabled(), false);
+  assert.equal((await waitServerJob()).stage, 'write');
+
+  step = '任务阶段（模拟网络中断）';
+  jobMode = 'abort';
+  await exportButton.click();
+  await page.getByRole('status').filter({ hasText: '网络中断，任务状态暂时无法确认' }).waitFor();
+  assert.equal(await page.locator('#job-banner').isHidden(), true);
+  assert.equal(await exportButton.isDisabled(), false);
+  assert.equal((await waitServerJob()).progress, 1);
+
+  step = '任务阶段（模拟切素材）';
+  jobMode = 'encode';
+  const switchedExport = exportButton.click();
+  await page.locator('#job-text').filter({ hasText: '正在编码成片，完成时间不确定' }).waitFor();
+  const switched = await captureDialogs('accept', async () => {
+    await dropped('drop-sample.mp4', 'video/mp4', await readFile(samplePath));
+    await page.getByRole('status').filter({ hasText: '视频已导入' }).waitFor();
+  });
+  assert.equal(switched.length, 1);
+  assert.match(switched[0].message, /当前编辑尚未保存/);
+  assert.equal(await page.locator('#filename').textContent(), 'drop-sample.mp4');
+  assert.equal(await page.locator('#job-banner').isHidden(), true);
+  jobMode = 'pass';
+  await switchedExport;
+  await page.waitForTimeout(600);
+  assert.equal(await page.locator('#job-banner').isHidden(), true);
+  assert.match(await page.locator('#status').textContent(), /视频已导入/);
+  assert.doesNotMatch(await page.locator('#status').textContent(), /导出完成|%/);
+  await page.unroute(/\/api\/jobs\/[0-9a-f-]{36}$/);
+
   console.log('浏览器验收通过，剪辑、预览、字幕导出、保存恢复、源文件不匹配校验均可用');
 } catch (error) {
   console.error(`浏览器验收失败于「${step}」：${error.message}`);
