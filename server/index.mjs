@@ -30,6 +30,7 @@ const web = new Map([
   ['/restore-status.js', ['../web/restore-status.js', 'text/javascript; charset=utf-8']],
   ['/style.css', ['../web/style.css', 'text/css; charset=utf-8']],
   ['/core.js', ['../_build/js/release/build/core/core.js', 'text/javascript; charset=utf-8']],
+  ['/edit-dirty.js', ['../web/edit-dirty.js', 'text/javascript; charset=utf-8']],
 ]);
 const at = path => fileURLToPath(new URL(path, import.meta.url));
 

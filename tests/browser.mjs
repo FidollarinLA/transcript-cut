@@ -18,6 +18,30 @@ let browser;
 let page;
 let step = '启动服务';
 const errors = [];
+
+async function captureDialogs(decision, action) {
+  const dialogs = [];
+  const onDialog = async dialog => {
+    dialogs.push({ type: dialog.type(), message: dialog.message() });
+    if (decision === 'accept') await dialog.accept();
+    else await dialog.dismiss();
+  };
+  page.on('dialog', onDialog);
+  try {
+    await action();
+  } finally {
+    page.off('dialog', onDialog);
+  }
+  return dialogs;
+}
+
+function leaveWouldPrompt() {
+  return page.evaluate(() => {
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+}
 try {
   const [startup] = await Promise.race([
     once(child.stdout, 'data'),
@@ -216,8 +240,10 @@ try {
   if (BROWSER_SCREENSHOT) await page.screenshot({ path: BROWSER_SCREENSHOT, fullPage: true });
 
   if (process.env.WHISPER_TEST_INPUT && process.env.WHISPER_MODEL) {
-    await page.locator('#video-file').setInputFiles(process.env.WHISPER_TEST_INPUT);
-    await page.getByRole('status').filter({ hasText: '视频已导入' }).waitFor();
+    await captureDialogs('accept', async () => {
+      await page.locator('#video-file').setInputFiles(process.env.WHISPER_TEST_INPUT);
+      await page.getByRole('status').filter({ hasText: '视频已导入' }).waitFor();
+    });
     await page.getByRole('button', { name: '自动转写' }).click();
     await page.getByRole('status').filter({ hasText: '转写完成' }).waitFor({ timeout: 60_000 });
     assert((await page.locator('.row').count()) >= 2);
@@ -228,6 +254,104 @@ try {
     assert.deepEqual(errors, []);
     console.log('浏览器实际完成中文转写、选择句段剪辑、MP4 导出');
   }
+
+  step = '未保存编辑';
+  await captureDialogs('accept', () => page.goto(address));
+  await page.getByRole('button', { name: '打开样例' }).click();
+  await page.locator('.row').first().waitFor();
+  assert.equal(await leaveWouldPrompt(), false);
+  await page.locator('.row').nth(1).click();
+  await page.getByRole('button', { name: '剪掉区间' }).click();
+  await page.locator('.row.removed').waitFor();
+  assert.equal(await leaveWouldPrompt(), true);
+  const keptDuration = await page.locator('#output-duration').textContent();
+  const keptName = await page.locator('#filename').textContent();
+  const keptRow = await page.locator('.row').nth(1).textContent();
+  await page.evaluate(() => { document.querySelector('#status').textContent = '等待确认'; });
+  const sampleDialogs = await captureDialogs('dismiss', async () => {
+    await page.getByRole('button', { name: '打开样例', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: '已取消，当前编辑未改动' }).waitFor();
+  });
+  assert.equal(sampleDialogs.length, 1);
+  assert.equal(sampleDialogs[0].type, 'confirm');
+  assert.equal(sampleDialogs[0].message, '当前编辑尚未保存，继续会清空这些编辑，要继续吗？');
+  assert.equal(await page.locator('#output-duration').textContent(), keptDuration);
+  assert.equal(await page.locator('#filename').textContent(), keptName);
+  assert.equal(await page.locator('.row.removed').count(), 1);
+  assert.equal(await page.locator('.row').nth(1).textContent(), keptRow);
+  if (process.env.UNSAVED_SCREENSHOT) {
+    await page.screenshot({ path: process.env.UNSAVED_SCREENSHOT, fullPage: true });
+  }
+
+  await page.evaluate(() => { document.querySelector('#status').textContent = '等待确认'; });
+  const srtDialogs = await captureDialogs('dismiss', async () => {
+    await page.locator('#srt-file').setInputFiles({
+      name: 'other.srt',
+      mimeType: 'application/x-subrip',
+      buffer: Buffer.from('1\n00:00:00,000 --> 00:00:01,000\n不该替换。\n'),
+    });
+    await page.getByRole('status').filter({ hasText: '已取消，当前编辑未改动' }).waitFor();
+  });
+  assert.equal(srtDialogs.length, 1);
+  assert.equal(srtDialogs[0].type, 'confirm');
+  assert.equal(srtDialogs[0].message, '替换转写稿会清空当前编辑，继续吗？');
+  assert.equal(await page.locator('.row.removed').count(), 1);
+  assert.equal(await page.locator('#output-duration').textContent(), keptDuration);
+
+  await page.evaluate(() => { document.querySelector('#status').textContent = '等待确认'; });
+  const projectDialogs = await captureDialogs('dismiss', async () => {
+    await page.locator('#project-file').setInputFiles({
+      name: 'other.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from('{}'),
+    });
+    await page.getByRole('status').filter({ hasText: '已取消，当前编辑未改动' }).waitFor();
+  });
+  assert.equal(projectDialogs.length, 1);
+  assert.equal(projectDialogs[0].message, '替换转写稿会清空当前编辑，继续吗？');
+  assert.equal(await page.locator('.row.removed').count(), 1);
+  assert.equal(await page.locator('.row').nth(1).textContent(), keptRow);
+  assert.equal(await leaveWouldPrompt(), true);
+  const leaveDialogs = await captureDialogs('accept', () => page.reload());
+  assert.equal(leaveDialogs.length, 1);
+  assert.equal(leaveDialogs[0].type, 'beforeunload');
+
+  await page.getByRole('button', { name: '打开样例' }).click();
+  await page.locator('.row').first().waitFor();
+  await page.locator('.row').nth(1).click();
+  await page.getByRole('button', { name: '剪掉区间' }).click();
+  await page.locator('.row.removed').waitFor();
+  const guardDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: '保存项目' }).click();
+  await guardDownload;
+  await page.getByRole('status').filter({ hasText: '项目文件已生成' }).waitFor();
+  assert.equal(await leaveWouldPrompt(), false);
+  await page.getByRole('button', { name: '撤销' }).click();
+  assert.equal(await page.locator('.row.removed').count(), 0);
+  assert.equal(await leaveWouldPrompt(), true);
+  await page.getByRole('button', { name: '重做' }).click();
+  await page.locator('.row.removed').waitFor();
+  assert.equal(await leaveWouldPrompt(), false);
+  const cleanLeave = await captureDialogs('accept', () => page.reload());
+  assert.equal(cleanLeave.length, 0);
+
+  await page.getByRole('button', { name: '打开样例' }).click();
+  await page.locator('.row').first().waitFor();
+  await page.locator('.row').nth(1).click();
+  await page.getByRole('button', { name: '剪掉区间' }).click();
+  await page.locator('.row.removed').waitFor();
+  const errorsBeforeSave = errors.length;
+  await page.evaluate(() => {
+    URL.createObjectURL = () => { throw new Error('无法创建项目文件'); };
+  });
+  await page.getByRole('button', { name: '保存项目' }).click();
+  await page.getByRole('status').filter({ hasText: '无法创建项目文件' }).waitFor();
+  assert.equal(await page.locator('#status').evaluate(node => node.classList.contains('error')), true);
+  assert.equal(await page.locator('.row.removed').count(), 1);
+  assert.equal(await leaveWouldPrompt(), true);
+  assert.equal(errors.length, errorsBeforeSave);
+  await captureDialogs('accept', () => page.reload());
+
   console.log('浏览器验收通过，剪辑、预览、字幕导出、保存恢复、源文件不匹配校验均可用');
 } catch (error) {
   console.error(`浏览器验收失败于「${step}」：${error.message}`);
