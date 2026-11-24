@@ -14,6 +14,7 @@ import { partialReview } from '/review-hint.js';
 import { restoreStatus } from '/restore-status.js';
 import { appendTrackDurationTip, time } from '/status-tip.js';
 import { suggestionFilters, suggestionMeta, summarizeSuggestions, visibleSuggestions } from '/suggestion-kind.js';
+import { jobPollError, jobStageText } from '/job-status.js';
 import { classifyDrop } from '/drop-file.js';
 import { matchShortcut } from '/shortcuts.js';
 import { shortcutHelp } from '/shortcuts.js';
@@ -97,6 +98,7 @@ let rows = new Map();
 let activeRow;
 let savedSignature = editSignature(state.spans, state.history);
 let suggestionFilter = 'all';
+let exportTicket = 0;
 initTheme();
 
 function editIsDirty() {
@@ -108,8 +110,21 @@ function markClean() {
 }
 
 async function request(path, options) {
-  const response = await fetch(path, options);
-  const value = await response.json();
+  let response;
+  try {
+    response = await fetch(path, options);
+  } catch (error) {
+    throw new Error(jobPollError(error));
+  }
+  const text = await response.text();
+  let value = {};
+  if (text) {
+    try {
+      value = JSON.parse(text);
+    } catch (error) {
+      throw new Error(jobPollError(error));
+    }
+  }
   if (!response.ok) throw new Error(value.error || `HTTP ${response.status}`);
   return value;
 }
@@ -199,6 +214,7 @@ function setAsset(asset, name, message) {
     notice(replaceCancelledNotice);
     return;
   }
+  abandonJobView();
   state.asset = asset;
   el('filename').textContent = name;
   el('empty-video').hidden = true;
@@ -459,13 +475,48 @@ function updatePlayback() {
   }
 }
 
-async function waitForJob(id, onProgress) {
-  for (;;) {
-    const job = await request(`/api/jobs/${id}`);
-    if (job.progress !== undefined && onProgress) onProgress(job.progress);
-    if (job.state === 'done') return job.result;
-    if (job.state === 'failed') throw new Error(job.error);
-    await new Promise(resolve => setTimeout(resolve, 450));
+function showJob(assetId, kind, stage) {
+  if (state.asset?.id !== assetId) return;
+  const banner = el('job-banner');
+  banner.hidden = false;
+  banner.setAttribute('aria-busy', 'true');
+  el('job-text').textContent = jobStageText(kind, stage);
+  el('job-note').textContent = kind === 'export' ? '仍可继续编辑。' : '可以先看原视频。';
+}
+
+function hideJob() {
+  const banner = el('job-banner');
+  if (!banner) return;
+  banner.hidden = true;
+  banner.removeAttribute('aria-busy');
+  el('job-text').textContent = '';
+  el('job-note').textContent = '';
+}
+
+function abandonJobView() {
+  exportTicket += 1;
+  state.exporting = false;
+  hideJob();
+  controls();
+}
+
+async function waitForJob(id, assetId, kind) {
+  try {
+    for (;;) {
+      let job;
+      try {
+        job = await request(`/api/jobs/${id}`);
+      } catch (error) {
+        throw new Error(jobPollError(error));
+      }
+      if (!job || typeof job.state !== 'string') throw new Error(jobPollError(new Error('无法读取')));
+      if (state.asset?.id === assetId) showJob(assetId, kind, job.stage);
+      if (job.state === 'done') return job.result;
+      if (job.state === 'failed') throw new Error(job.error || '处理未能完成');
+      await new Promise(resolve => setTimeout(resolve, 450));
+    }
+  } finally {
+    if (state.asset?.id === assetId) hideJob();
   }
 }
 
@@ -621,13 +672,18 @@ window.addEventListener('drop', event => {
 });
 el('transcribe').onclick = () => {
   if (!allowReplacingTranscript()) return;
-  void perform('Whisper 正在本机转写，可以先看原视频。', async () => {
-    const { id } = await post(assetPath('transcribe'), { language: el('language').value });
-    const { spans } = await waitForJob(id, progress => {
-      notice(`Whisper 正在本机转写（${Math.round(progress * 100)}%），可以先看原视频。`);
-    });
-    replaceSpans(spans);
-    notice(`转写完成，共 ${spans.length} 个句段。请复听后确认切点。`);
+  const assetId = state.asset.id;
+  void perform('', async () => {
+    showJob(assetId, 'transcribe', 'transcribe');
+    try {
+      const { id } = await post(assetPath('transcribe'), { language: el('language').value });
+      const { spans } = await waitForJob(id, assetId, 'transcribe');
+      if (state.asset?.id !== assetId) return;
+      replaceSpans(spans);
+      notice(`转写完成，共 ${spans.length} 个句段。请复听后确认切点。`);
+    } finally {
+      if (state.asset?.id === assetId) hideJob();
+    }
   });
 };
 el('undo').onclick = () => apply('undo');
@@ -817,16 +873,15 @@ window.addEventListener('keydown', event => {
 el('export').onclick = async () => {
   const assetId = state.asset.id;
   const revision = state.revision;
+  const ticket = ++exportTicket;
   const path = assetPath('export');
   state.exporting = true;
   controls();
-  notice('正在导出，仍可继续编辑。');
+  showJob(assetId, 'export', 'check');
   try {
     const { id } = await post(path, { spans: state.spans, history: state.history });
-    const finished = await waitForJob(id, progress => {
-      notice(`正在导出（${Math.round(progress * 100)}%），仍可继续编辑。`);
-    });
-    if (state.asset.id !== assetId) return;
+    const finished = await waitForJob(id, assetId, 'export');
+    if (state.asset?.id !== assetId) return;
     const label = element('span', '', `${revision === state.revision ? '成片' : '上一版成片'} · ${time(finished.duration_us)}`);
     label.id = 'export-version';
     const links = [['cut.mp4', '下载 MP4'], ['captions.srt', '下载 SRT']].map(([file, text]) => {
@@ -839,10 +894,13 @@ el('export').onclick = async () => {
     el('downloads').hidden = false;
     notice('导出完成。');
   } catch (error) {
-    if (state.asset.id === assetId) notice(error.message, true);
+    if (state.asset?.id === assetId) notice(error.message, true);
   } finally {
-    state.exporting = false;
-    controls();
+    if (ticket === exportTicket) {
+      state.exporting = false;
+      hideJob();
+      controls();
+    }
   }
 };
 
