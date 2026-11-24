@@ -1,3 +1,13 @@
+import {
+  assetReplacePrompt,
+  editSignature,
+  isEditDirty,
+  leavePromptNeeded,
+  replaceCancelledNotice,
+  restoreNoticeClearsDirty,
+  saveNoticeClearsDirty,
+  transcriptReplacePrompt,
+} from '/edit-dirty.js';
 import { dispatch } from '/core.js';
 import { calculateEdit } from '/edit-core.js';
 import { partialReview } from '/review-hint.js';
@@ -82,7 +92,16 @@ const state = {
 };
 let rows = new Map();
 let activeRow;
+let savedSignature = editSignature(state.spans, state.history);
 initTheme();
+
+function editIsDirty() {
+  return isEditDirty(state.spans, state.history, savedSignature);
+}
+
+function markClean() {
+  savedSignature = editSignature(state.spans, state.history);
+}
 
 async function request(path, options) {
   const response = await fetch(path, options);
@@ -103,6 +122,7 @@ function notice(text, error = false) {
   region.textContent = text;
   region.hidden = !text;
   region.classList.toggle('error', error);
+  if (restoreNoticeClearsDirty(text, error)) markClean();
 }
 
 function controls() {
@@ -164,10 +184,17 @@ function replaceSpans(spans) {
 }
 
 function allowReplacingTranscript() {
-  return !state.history.cursor || window.confirm('替换转写稿会清空当前编辑，继续吗？');
+  if (!editIsDirty()) return true;
+  if (window.confirm(transcriptReplacePrompt)) return true;
+  notice(replaceCancelledNotice);
+  return false;
 }
 
 function setAsset(asset, name, message) {
+  if (editIsDirty() && !window.confirm(assetReplacePrompt)) {
+    notice(replaceCancelledNotice);
+    return;
+  }
   state.asset = asset;
   el('filename').textContent = name;
   el('empty-video').hidden = true;
@@ -177,6 +204,7 @@ function setAsset(asset, name, message) {
   el('preview').checked = false;
   state.listenUntil = null;
   replaceSpans(asset.spans);
+  markClean();
   notice(appendTrackDurationTip(message, asset.video_duration_us, asset.audio_duration_us));
 }
 
@@ -647,3 +675,24 @@ request('/api/config').then(config => {
   el('transcribe-help').textContent = state.whisper ? '' : '未配置本地模型，可导入 SRT';
   controls();
 }).catch(error => notice(error.message, true));
+
+window.addEventListener('beforeunload', event => {
+  if (!leavePromptNeeded(editIsDirty())) return;
+  event.preventDefault();
+  event.returnValue = '';
+});
+
+const saveButton = el('save-project');
+const saveProject = saveButton.onclick;
+saveButton.onclick = event => {
+  try {
+    saveProject.call(saveButton, event);
+  } catch (error) {
+    const message = error instanceof Error && error.message
+      ? error.message
+      : '项目文件未能生成，当前编辑仍未保存。';
+    notice(message, true);
+    return;
+  }
+  if (saveNoticeClearsDirty(el('status').textContent, el('status').classList.contains('error'))) markClean();
+};
