@@ -60,6 +60,14 @@ test('快捷键匹配支持播放、步进、撤销重做与剪除', () => {
   // 剪除与选择导航
   assert.equal(matchShortcut(evt('Delete')), 'cut');
   assert.equal(matchShortcut(evt('Backspace')), 'cut');
+  assert.equal(matchShortcut(evt('i')), 'mark-start');
+  assert.equal(matchShortcut(evt('I')), 'mark-start');
+  assert.equal(matchShortcut(evt('o')), 'mark-end');
+  assert.equal(matchShortcut(evt('O')), 'mark-end');
+  assert.equal(matchShortcut(evt('i', { shiftKey: true })), null);
+  assert.equal(matchShortcut(evt('I', { ctrlKey: true })), null);
+  assert.equal(matchShortcut(evt('o', { altKey: true })), null);
+  assert.equal(matchShortcut(evt('O', { metaKey: true })), null);
   assert.equal(matchShortcut(evt('ArrowUp')), 'select-prev');
   assert.equal(matchShortcut(evt('ArrowUp', { shiftKey: true })), 'extend-prev');
   assert.equal(matchShortcut(evt('ArrowDown')), 'select-next');
@@ -77,12 +85,17 @@ test('弹窗打开或在输入框中打字时屏蔽全局快捷键', () => {
     metaKey: Boolean(opts.metaKey),
     shiftKey: Boolean(opts.shiftKey),
     altKey: Boolean(opts.altKey),
+    isComposing: Boolean(opts.isComposing),
     target: opts.target || { tagName: 'BODY', getAttribute: () => null },
   });
 
   // 输入框内不拦截
   assert.equal(matchShortcut(evt(' ', { target: editableTarget })), null);
   assert.equal(matchShortcut(evt('Delete', { target: editableTarget })), null);
+  assert.equal(matchShortcut(evt('i', { target: editableTarget })), null);
+  assert.equal(matchShortcut(evt('o', { target: { tagName: 'INPUT', type: 'text', getAttribute: () => null } })), null);
+  assert.equal(matchShortcut(evt('I'), { isDialogOpen: true }), null);
+  assert.equal(matchShortcut(evt('O', { isComposing: true })), null);
   assert.equal(matchShortcut(evt('z', { ctrlKey: true, target: textareaTarget })), null);
 
   // 弹窗处于打开状态时不拦截
@@ -130,7 +143,7 @@ test('帮助清单与真实键位返回的动作一致', () => {
   });
   const found = new Set();
   const remember = action => { if (action) found.add(action); };
-  for (const key of [' ', 'Spacebar', 'k', 'K', 'j', 'J', 'l', 'L', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Delete', 'Backspace', 'Escape', '?', '？', '/']) {
+  for (const key of [' ', 'Spacebar', 'k', 'K', 'j', 'J', 'l', 'L', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Delete', 'Backspace', 'Escape', '?', '？', '/', 'i', 'I', 'o', 'O']) {
     remember(matchShortcut(evt(key)));
     remember(matchShortcut(evt(key, { shiftKey: true })));
   }

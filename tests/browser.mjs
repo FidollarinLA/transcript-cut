@@ -201,6 +201,43 @@ try {
   await page.getByRole('button', { name: '撤销' }).click();
   assert.equal(await page.locator('#output-duration').textContent(), '00:12.000');
 
+  step = 'I/O 设起止';
+  await page.locator('.row').last().click();
+  assert.equal(await page.locator('#start').inputValue(), '10.000');
+  assert.equal(await page.locator('#end').inputValue(), '12.000');
+  await page.locator('#player').evaluate(video => { video.currentTime = 10.5; });
+  await page.keyboard.press('i');
+  assert.equal(await page.locator('#start').inputValue(), '10.500');
+  assert.equal(await page.locator('#end').inputValue(), '12.000');
+  await page.locator('#player').evaluate(video => { video.currentTime = 11.5; });
+  await page.keyboard.press('o');
+  assert.equal(await page.locator('#start').inputValue(), '10.500');
+  assert.equal(await page.locator('#end').inputValue(), '11.500');
+  await page.locator('#start').focus();
+  await page.keyboard.press('i');
+  assert.equal(await page.locator('#start').inputValue(), '10.500');
+  assert.equal(await page.locator('#end').inputValue(), '11.500');
+  await page.evaluate(() => document.activeElement.blur());
+  await page.getByRole('button', { name: '快捷键', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#shortcuts-dialog').open);
+  assert.match(await page.locator('#shortcuts-dialog').textContent(), /把当前位置设为起点/);
+  assert.match(await page.locator('#shortcuts-dialog').textContent(), /把当前位置设为终点/);
+  await page.keyboard.press('o');
+  assert.equal(await page.locator('#start').inputValue(), '10.500');
+  assert.equal(await page.locator('#end').inputValue(), '11.500');
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('#shortcuts-dialog').open);
+  await page.locator('#player').evaluate(video => { video.currentTime = 10; });
+  await page.keyboard.press('o');
+  assert.match(await page.locator('#status').textContent(), /当前位置需晚于起点/);
+  assert.equal(await page.locator('#start').inputValue(), '10.500');
+  assert.equal(await page.locator('#end').inputValue(), '11.500');
+  await page.getByRole('button', { name: '复听', exact: true }).click();
+  await page.getByRole('button', { name: '剪掉区间' }).click();
+  assert.equal(await page.locator('#output-duration').textContent(), '00:11.000');
+  await page.getByRole('button', { name: '撤销' }).click();
+  assert.equal(await page.locator('#output-duration').textContent(), '00:12.000');
+
   step = '剪除、撤销和重做';
   await page.getByRole('button', { name: /口头禅/ }).click();
   await page.waitForFunction(() => document.querySelector('#player').currentTime >= 2);
@@ -588,6 +625,8 @@ try {
   const helpText = await helpDialog.textContent();
   assert.match(helpText, /播放或暂停/);
   assert.match(helpText, /剪掉当前选区/);
+  assert.match(helpText, /把当前位置设为起点/);
+  assert.match(helpText, /把当前位置设为终点/);
   assert.match(helpText, /打开快捷键说明/);
   assert.match(helpText, /播放和剪辑快捷键会暂停/);
   if (process.env.SHORTCUT_SCREENSHOT_DIR) {

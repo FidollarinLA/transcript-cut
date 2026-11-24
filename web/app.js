@@ -858,6 +858,14 @@ window.addEventListener('keydown', event => {
       }
       break;
     }
+    case 'mark-start':
+    case 'mark-end': {
+      if (state.selection && !state.busy) {
+        event.preventDefault();
+        markPlayhead(action === 'mark-start' ? 'start' : 'end');
+      }
+      break;
+    }
     case 'cut': {
       if (state.selection && !state.busy) {
         event.preventDefault();
