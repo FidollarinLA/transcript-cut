@@ -17,6 +17,7 @@ import { suggestionFilters, suggestionMeta, summarizeSuggestions, visibleSuggest
 import { jobPollError, jobStageText } from '/job-status.js';
 import { classifyDrop } from '/drop-file.js';
 import { seekUsInBar } from '/seek-bar.js';
+import { markRangeFromPlayhead } from '/mark-range.js';
 import { matchShortcut } from '/shortcuts.js';
 import { shortcutHelp } from '/shortcuts.js';
 
@@ -374,10 +375,33 @@ function showSelection(start, end) {
   const text = rows.get(selection.span?.id)?.text;
   el('selected-text').textContent = [selection.label, text].filter(Boolean).join(' · ') || '当前字幕为空';
   if (start !== undefined) {
-    el('start').value = (start / unit).toFixed(start % 1000 ? 6 : 3);
-    el('end').value = (end / unit).toFixed(end % 1000 ? 6 : 3);
+    el('start').value = secondsField(start);
+    el('end').value = secondsField(end);
   }
   controls();
+}
+
+function secondsField(us) {
+  return (us / unit).toFixed(us % 1000 ? 6 : 3);
+}
+
+function markPlayhead(side) {
+  if (!state.asset || !state.selection) return;
+  const marked = markRangeFromPlayhead({
+    side,
+    currentUs: currentUs(),
+    startUs: Math.round(el('start').valueAsNumber * unit),
+    endUs: Math.round(el('end').valueAsNumber * unit),
+    durationUs: state.asset.duration_us,
+  });
+  if (marked.error) {
+    notice(marked.error, true);
+    return;
+  }
+  if (state.listenUntil !== null) player.pause();
+  state.listenUntil = null;
+  el('start').value = secondsField(marked.startUs);
+  el('end').value = secondsField(marked.endUs);
 }
 
 function editRange() {
@@ -697,6 +721,8 @@ el('redo').onclick = () => apply('redo');
 el('listen').onclick = () => {
   try { listen(...editRange()); } catch (error) { notice(error.message, true); }
 };
+el('mark-start').onclick = () => markPlayhead('start');
+el('mark-end').onclick = () => markPlayhead('end');
 el('remove').onclick = () => {
   try {
     const [start_us, end_us] = editRange();
