@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 460" role="img" aria-labelledby="title desc">
+  <title id="title">编辑与任务链路</title>
+  <desc id="desc">剪辑请求从页面进入 edit-core.js 再进入 dispatch。导出和转写的阶段写在 job-banner，普通状态写在 status。</desc>
+  <style>
+    text { font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; fill: #1c2923; }
+    .card { fill: #f7f8f4; stroke: #1f7a45; stroke-width: 1.5; }
+    .muted { fill: #e7f3d2; stroke: #1f7a45; stroke-width: 1.5; }
+    .label { font-size: 15px; font-weight: 700; }
+    .small { font-size: 12px; fill: #3d4a43; }
+    .arrow { stroke: #1f7a45; stroke-width: 1.6; fill: none; }
+  </style>
+  <rect width="960" height="460" fill="#e6ece7"/>
+  <text x="24" y="32" class="label">一次剪辑</text>
+
+  <rect x="24" y="52" width="210" height="78" rx="10" class="card"/>
+  <text x="40" y="82" class="label">导入或打开样例</text>
+  <text x="40" y="104" class="small">探测 MP4，或读入 SRT</text>
+
+  <rect x="274" y="52" width="220" height="78" rx="10" class="card"/>
+  <text x="290" y="82" class="label">web/app.js</text>
+  <text x="290" y="104" class="small">选区、剪掉区间、修正文字</text>
+
+  <rect x="534" y="52" width="190" height="78" rx="10" class="muted"/>
+  <text x="550" y="82" class="label">edit-core.js</text>
+  <text x="550" y="104" class="small">calculateEdit</text>
+
+  <rect x="760" y="52" width="176" height="78" rx="10" class="card"/>
+  <text x="776" y="82" class="label">dispatch</text>
+  <text x="776" y="104" class="small">计划与建议</text>
+
+  <path d="M234 91 H274" class="arrow"/>
+  <path d="M494 91 H534" class="arrow"/>
+  <path d="M724 91 H760" class="arrow"/>
+
+  <rect x="274" y="168" width="400" height="64" rx="10" class="card"/>
+  <text x="290" y="196" class="label">回到界面</text>
+  <text x="290" y="216" class="small">时间轴、转写稿、建议剪点。建议可筛选，不改历史。</text>
+  <path d="M848 130 V200 H674" class="arrow"/>
+
+  <text x="24" y="276" class="label">一条任务</text>
+  <rect x="24" y="292" width="280" height="92" rx="10" class="card"/>
+  <text x="40" y="322" class="label">导出成片 或 自动转写</text>
+  <text x="40" y="344" class="small">server 记下真实 stage</text>
+  <text x="40" y="364" class="small">导出：核对、编码、保存</text>
+
+  <rect x="360" y="292" width="270" height="92" rx="10" class="muted"/>
+  <text x="376" y="322" class="label">#job-banner</text>
+  <text x="376" y="344" class="small">阶段文案和不确定等待</text>
+  <text x="376" y="364" class="small">不显示假百分比</text>
+
+  <rect x="686" y="292" width="250" height="92" rx="10" class="card"/>
+  <text x="702" y="322" class="label">#status</text>
+  <text x="702" y="344" class="small">保存、恢复、错误、复核</text>
+  <text x="702" y="364" class="small">完成后这里写结果，并给出下载</text>
+
+  <path d="M304 338 H360" class="arrow"/>
+  <path d="M630 338 H686" class="arrow"/>
+  <text x="24" y="430" class="small">转写未配置模型时不会启动。换素材后，旧任务不再写到新素材的状态上。</text>
+</svg>

@@ -2,6 +2,22 @@
 
 导入本地 MP4，通过 SRT 或本机 Whisper 得到转写稿。点击一句话定位原视频，复听后剪去对应画面和声音，最后导出新的 MP4 和同步 SRT。
 
+## 整体架构
+
+编辑器只在本机运行。浏览器打开 `http://127.0.0.1:4317`，页面和接口都由 `server/index.mjs` 提供。剪辑计算沿固定的三层走，不在页面里另写一套规则：
+
+`web/app.js` 收集选区、字幕和撤销历史，调用 `web/edit-core.js` 的 `calculateEdit`。那里把 Int64 微秒换成十进制字符串，再交给构建出的 `core.js` 里 MoonBit `dispatch`。返回的是剪辑计划、重排字幕和三类建议。`server/index.mjs` 在导出前用同一条 `edit-core.js` 路径核对计划。`scripts/build.mjs` 把 `core/` 编成这份 JS。
+
+`js` 和 `wasm-gc` 都是核心库与 CI 的验证目标。正在使用的编辑器加载的是 JS `dispatch`，不是浏览器里的另一套 WASM 运行时。
+
+![本机结构：web 经 edit-core.js 调用 core，server 只监听 127.0.0.1](docs/architecture-overview.svg)
+
+一次剪辑从导入或**打开样例**开始，经 `edit-core.js` 和 `dispatch` 回到时间轴、转写稿和建议剪点。导出或自动转写是单独的作业：服务端记下真实阶段，`#job-banner` 只写阶段和不确定等待，不用百分比。保存、恢复、错误和复核仍写在 `#status`。
+
+![编辑请求与任务阶段分别回到界面和任务条](docs/architecture-edit-job.svg)
+
+没有设置 `WHISPER_MODEL` 时，**自动转写**不可用，页面会提示改为导入 SRT。仓库不附带模型，也不把无模型测试说成真实语音识别验收。
+
 ## 快速运行
 
 在 Windows 资源管理器双击 **启动文字剪视频.cmd**。服务就绪后会打开默认浏览器，请保持启动窗口开启。再次双击会优先打开已在 4317 端口运行的编辑器；若该端口上的本程序无响应，启动脚本会只结束这个无响应进程并重新启动。PATH 里没有 Node.js 22+ 时，启动脚本会尝试使用已安装的 Codex Windows 运行时。
@@ -33,7 +49,17 @@ npm start
 - **Escape**：取消当前选区。输入框打字与文字修正弹窗内自动隔离全局快捷键。
 - **?** 或顶栏**快捷键**：打开快捷键说明。输入框和任意弹窗打开时不触发。
 
-导入自己的文件时，使用一条 H.264 视频轨和一条 AAC 音频轨、起点为 0 秒的 MP4。可以导入与视频匹配的 UTF-8 SRT，也可以设置本机 Whisper 模型。点**保存项目**下载转写稿和编辑历史。下次先导入同一个 MP4，再点**恢复项目**。把 MP4、SRT 或项目 JSON 拖进窗口，效果与这三个按钮相同：字幕和项目仍要先有视频，错误显示在顶部状态条。
+编辑器里还可以：
+
+- 顶栏**主题**在浅色和深色之间切换，并记住这次选择。预览区保持深色。
+- 把 MP4、SRT 或项目 JSON 拖进窗口，效果与**导入 MP4**、**导入 SRT**、**恢复项目**相同。字幕和项目仍要先有视频，错误写在 `#status`。修正文字或快捷键说明等弹窗打开时，这次拖放被忽略，也不会盖上拖放遮罩。
+- 还有未保存的剪切、修字或撤销记录时，替换视频、替换字幕、恢复项目或离开页面会先确认。取消则保持当前编辑。**保存项目**成功后不再提示；保存失败则继续提示。导出成片不等于保存项目。
+- **建议剪点**用文字徽标区分口头禅、重复句和长停顿，并可按类型筛选。点一条会复听并填入选区，再由你决定是否**剪掉区间**。筛选不改撤销历史。换视频后回到全部。
+- 切点截断某句时，复核条说明该句已从成片字幕略去，并可用**定位**回到原片时间。
+- **恢复项目**会说明源视频是否匹配，以及还能撤销几步。错源时当前编辑不变。
+- 宽屏左右分栏。大约 850px 以内改为单列；更窄时多行顶栏不再吸顶挡住正文。
+
+导入自己的文件时，使用一条 H.264 视频轨和一条 AAC 音频轨、起点为 0 秒的 MP4。可以导入与视频匹配的 UTF-8 SRT，也可以设置本机 Whisper 模型。点**保存项目**下载转写稿和编辑历史。下次先导入同一个 MP4，再点**恢复项目**。
 
 ## 自动转写
 
@@ -76,7 +102,7 @@ Windows 上也可以运行 `./scripts/start-local.ps1 -WhisperModel 'C:/path/to/
   - *增量*：将原有的剪辑逻辑重构为基于 MoonBit 实现的高性能、类型化不可变核心（`core/`），以微秒半开区间严格计算删除补集；在导出端针对音视频轨时长不一致补齐（音频长于视频时定格末帧对齐总时长）、竖屏手机实拍旋转元数据（自动烘焙 90°/270° 正向像素且消除残留矩阵）以及非均匀可变帧率（VFR 按计划输出起点重算 PTS 避免每剪点累积误差）进行了严格的工程实现与自动化回归覆盖。
 - **对标 AutoCut (Apache-2.0)**：
   - *对照*：AutoCut 采用 Python 脚本通过带时间戳的 Markdown/SRT 驱动视频切割，更偏向命令行与批处理工作流。
-  - *增量*：本项目提供端到端浏览器可视化界面、实时切段定位时间轴、毫秒级交互预览与键盘快捷键粗剪；核心算法由 MoonBit 编写并编译为极轻量的 JS 与 WebAssembly 双后端产物，脱离对重型 Python 运行时的依赖。
+  - *增量*：本项目提供端到端浏览器界面、时间轴、预览和键盘粗剪。核心由 MoonBit 编写，编辑器通过 JS 产物里的 `dispatch` 调用它。同一份核心也用 `wasm-gc` 做检查和测试，页面本身不加载 WASM。
 - **对标 MoonTimeline**：
   - *对照*：MoonTimeline 侧重于通用的时间轴数学抽象与 OpenTimelineIO (OTIO) 多轨交换规范。
   - *增量*：本项目剪辑核心针对单素材粗剪场景，提供了零外部依赖的半开区间合并、双向时标投影映射（`source_to_output` / `output_to_source`）、智能修剪候选规则（口头禅、重复句、静音停顿）与 SRT 导出序列化，定位为轻量专用的剪辑规划器，未来可直接作为上游向 MoonTimeline 供给数据进行多轨互操作。
@@ -120,6 +146,7 @@ npm test
 - **计划构建与执行**：
   - `execute(request : Request) -> EditResult raise Invalid`：根据半开微秒区间计算删除求补集、有序保留区间、字幕重算与建议候选。
   - `plan(duration_us : Int64, spans : Array[Span], history : History) -> EditResult raise Invalid`：只读计算剪辑计划，不推进编辑历史。
+  - `dispatch(input : String) -> String`：面向 JS / Node 宿主的 JSON 字符串入口，边界上 Int64 时标采用十进制字符串，内部完成 JSON 解析、执行与序列化往返。
 - **双向时间轴映射**：
   - `Plan::source_to_output(self : Plan, source_us : Int64) -> Int64?`：将源视频微秒时间戳映射到输出时间轴（被删片段及界外返回 `None`）。
   - `Plan::output_to_source(self : Plan, output_us : Int64) -> Int64?`：将成片时间戳反向映射回原始素材时间戳（跨界及界外返回 `None`）。
@@ -148,7 +175,9 @@ npm test
   - `serialize_srt(captions)`：将字幕数组格式化为标准 SRT 字符串。
   - `suggest(spans)`：自动探测口头禅（中英文语气助词，英文忽略大小写）、重复句（标点和字母大小写归一化比对）与静音长停顿（>= 1.8s）候选区间，并输出可解释的建议原因（`reason`，片头或相邻两句会写进停顿理由）。
   - `Suggestion`：包含 `kind`、`span_id`、`start_us`、`end_us` 与 `reason`（例如 `口头禅「那个」`、`重复句「...」`、`片头长停顿 2.0 秒`、`「上一句」与「下一句」之间长停顿 2.0 秒`），支持 `duration()`、`contains(ts)`、`to_interval()` 与 `explain()`。
-- 导出的结构体（`Interval`、`Segment`、`Suggestion`、`Plan`、`EditResult` 等）均使用 `pub(all)`，便于外部包直接解构与访问字段。
+- **结构体与 JSON 序列化**：
+  - 核心结构体派生了 `@json.FromJson` 与 `@json.ToJson`（`Request`、`History`、`Span`、`Suggestion`、`Operation` 支持 `from_json` / `to_json`；`EditResult`、`Plan`、`Interval`、`Segment` 支持 `to_json`），便于跨语言或存储交换。
+  - 导出的结构体（`Interval`、`Segment`、`Suggestion`、`Plan`、`EditResult` 等）均使用 `pub(all)`，便于外部包直接解构与访问字段。
 
 ## Mooncakes 模块发布准备
 
