@@ -25,6 +25,7 @@ const web = new Map([
   ['/app.js', ['../web/app.js', 'text/javascript; charset=utf-8']],
   ['/edit-core.js', ['../web/edit-core.js', 'text/javascript; charset=utf-8']],
   ['/shortcuts.js', ['../web/shortcuts.js', 'text/javascript; charset=utf-8']],
+  ['/drop-file.js', ['../web/drop-file.js', 'text/javascript; charset=utf-8']],
   ['/status-tip.js', ['../web/status-tip.js', 'text/javascript; charset=utf-8']],
   ['/review-hint.js', ['../web/review-hint.js', 'text/javascript; charset=utf-8']],
   ['/restore-status.js', ['../web/restore-status.js', 'text/javascript; charset=utf-8']],

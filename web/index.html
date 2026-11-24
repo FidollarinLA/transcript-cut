@@ -17,6 +17,9 @@
   <script type="module" src="/app.js"></script>
 </head>
 <body>
+  <div id="drop-overlay" class="drop-overlay" hidden>
+    <p>松开以导入 MP4、SRT 或项目 JSON</p>
+  </div>
   <header class="top">
     <div class="brand"><div class="mark" aria-hidden="true">✂</div><h1>文字剪视频</h1></div>
     <div class="actions">
@@ -34,7 +37,7 @@
         <div class="section-head"><h2 id="monitor-heading">预览</h2><span id="filename">未导入视频</span></div>
         <div class="screen">
           <video id="player" controls playsinline preload="metadata" hidden></video>
-          <div id="empty-video" class="placeholder">导入 MP4，或打开样例</div>
+          <div id="empty-video" class="placeholder"><span>导入 MP4，或打开样例</span><small>也可以把文件拖进窗口</small></div>
         </div>
         <div class="timeline-block">
           <div class="timeline-meta">

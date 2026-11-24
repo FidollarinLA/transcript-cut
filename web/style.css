@@ -296,6 +296,30 @@ video { width: 100%; height: 100%; max-height: 54vh; object-fit: contain; backgr
   font-size: .95rem;
   line-height: 1.6;
 }
+.placeholder small { color: #b7c9bc; font-size: .8rem; }
+.drop-overlay {
+  position: fixed;
+  inset: 12px;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  border: 2px dashed var(--mint);
+  border-radius: var(--radius-3);
+  background: color-mix(in srgb, var(--bay) 88%, transparent);
+  color: #f3f7f2;
+  text-align: center;
+  box-shadow: var(--shadow-3);
+  pointer-events: none;
+}
+.drop-overlay p {
+  margin: 0;
+  padding: 14px 18px;
+  border-radius: 8px;
+  background: #121a16;
+  font-size: 1rem;
+  white-space: nowrap;
+}
 .placeholder::before {
   content: "";
   width: 58px;
@@ -549,4 +573,5 @@ dialog textarea {
   main { margin-top: 14px; padding-inline: 10px; }
   .row { grid-template-columns: 72px minmax(0, 1fr) max-content; padding-inline: 12px; }
   .preview { margin-left: 0; }
+  .drop-overlay p { white-space: normal; }
 }
