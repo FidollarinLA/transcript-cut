@@ -7,6 +7,7 @@ import {
   restoreNoticeClearsDirty,
   saveNoticeClearsDirty,
   transcriptReplacePrompt,
+  unsavedHintText,
 } from '/edit-dirty.js';
 import { dispatch } from '/core.js';
 import { calculateEdit } from '/edit-core.js';
@@ -111,6 +112,15 @@ function editIsDirty() {
 
 function markClean() {
   savedSignature = editSignature(state.spans, state.history);
+  paintUnsavedHint();
+}
+
+function paintUnsavedHint() {
+  const hint = el('unsaved-hint');
+  if (!hint) return;
+  const text = unsavedHintText(editIsDirty());
+  hint.textContent = text;
+  hint.hidden = !text;
 }
 
 async function request(path, options) {
@@ -192,6 +202,7 @@ function acceptEdit(result) {
   state.revision++;
   if (!el('downloads').hidden) el('export-version').textContent = '上一版成片';
   render();
+  paintUnsavedHint();
 }
 
 function recalculate(action = 'plan', operation = null) {
