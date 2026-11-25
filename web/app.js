@@ -19,6 +19,7 @@ import { classifyDrop } from '/drop-file.js';
 import { seekUsInBar } from '/seek-bar.js';
 import { markRangeFromPlayhead } from '/mark-range.js';
 import { editActionNotice } from '/edit-notice.js';
+import { selectionRangeStyle } from '/selection-range.js';
 import { matchShortcut } from '/shortcuts.js';
 import { shortcutHelp } from '/shortcuts.js';
 
@@ -372,13 +373,17 @@ function showSelection(start, end) {
     button.classList.toggle('selected', selected);
     button.setAttribute('aria-pressed', String(selected));
   }
-  if (!selection) return;
+  if (!selection) {
+    paintSelectionRange();
+    return;
+  }
   const text = rows.get(selection.span?.id)?.text;
   el('selected-text').textContent = [selection.label, text].filter(Boolean).join(' · ') || '当前字幕为空';
   if (start !== undefined) {
     el('start').value = secondsField(start);
     el('end').value = secondsField(end);
   }
+  paintSelectionRange();
   controls();
 }
 
@@ -403,6 +408,30 @@ function markPlayhead(side) {
   state.listenUntil = null;
   el('start').value = secondsField(marked.startUs);
   el('end').value = secondsField(marked.endUs);
+  paintSelectionRange();
+}
+
+function paintSelectionRange() {
+  const timeline = el('timeline');
+  if (!timeline) return;
+  let mark = timeline.querySelector('.selection-range');
+  if (!mark) {
+    mark = document.createElement('div');
+    mark.className = 'selection-range';
+    mark.setAttribute('aria-hidden', 'true');
+    timeline.append(mark);
+  }
+  const style = state.selection
+    ? selectionRangeStyle(
+      Math.round(el('start').valueAsNumber * unit),
+      Math.round(el('end').valueAsNumber * unit),
+      state.asset?.duration_us,
+    )
+    : null;
+  mark.hidden = !style;
+  if (!style) return;
+  mark.style.left = `${style.leftPct}%`;
+  mark.style.width = `${style.widthPct}%`;
 }
 
 function editRange() {
@@ -476,6 +505,7 @@ function renderTimeline(plan) {
   timeline.append(playhead);
   placePlayhead();
   paintTimelineStatus();
+  paintSelectionRange();
 }
 
 function updatePlayback() {
@@ -729,6 +759,7 @@ el('listen').onclick = () => {
 };
 el('mark-start').onclick = () => markPlayhead('start');
 el('mark-end').onclick = () => markPlayhead('end');
+for (const id of ['start', 'end']) el(id).addEventListener('input', () => paintSelectionRange());
 el('remove').onclick = () => {
   try {
     const [start_us, end_us] = editRange();

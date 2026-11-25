@@ -110,6 +110,17 @@ try {
   assert.equal(await page.locator('#duration').textContent(), '00:12.000');
   assert.equal(await page.locator('#player').evaluate(video => video.videoWidth > 0), true);
 
+  const selectionEdges = () => page.locator('#timeline .selection-range').evaluate(node => {
+    const bar = node.parentElement.getBoundingClientRect();
+    const box = node.getBoundingClientRect();
+    return {
+      hidden: node.hidden,
+      left: (box.left - bar.left) / bar.width,
+      right: (box.right - bar.left) / bar.width,
+      events: getComputedStyle(node).pointerEvents,
+    };
+  });
+
   step = '播放时转写跟随';
   const rowSeen = index => page.evaluate(rowIndex => {
     const box = document.querySelector('#transcript').getBoundingClientRect();
@@ -154,6 +165,10 @@ try {
     return Math.min(box.bottom, rect.bottom) - Math.max(box.top, rect.top) > 1;
   });
   await page.locator('#player').evaluate(video => video.pause());
+  const suggestionRange = await selectionEdges();
+  assert.equal(suggestionRange.hidden, false);
+  assert.ok(Math.abs(suggestionRange.left - 6.5 / 12) < 0.03, `建议选区左缘 ${suggestionRange.left}`);
+  assert.ok(Math.abs(suggestionRange.right - 7.5 / 12) < 0.03, `建议选区右缘 ${suggestionRange.right}`);
   await page.locator('#transcript').evaluate(node => {
     node.scrollTop = 0;
     node.style.maxHeight = '';
@@ -164,17 +179,34 @@ try {
   await page.locator('.row').last().click();
   assert.equal(await page.locator('#start').inputValue(), '10.000');
   assert.equal(await page.locator('#end').inputValue(), '12.000');
+  const sentenceRange = await selectionEdges();
+  assert.equal(sentenceRange.hidden, false);
+  assert.equal(sentenceRange.events, 'none');
+  assert.ok(Math.abs(sentenceRange.left - 10 / 12) < 0.03, `选区左缘 ${sentenceRange.left}`);
+  assert.ok(Math.abs(sentenceRange.right - 1) < 0.03, `选区右缘 ${sentenceRange.right}`);
+  const wholeBar = await page.locator('#timeline span').first().boundingBox();
+  await page.mouse.click(wholeBar.x + wholeBar.width * 0.5, wholeBar.y + wholeBar.height * 0.5);
+  await page.waitForFunction(() => {
+    const time = document.querySelector('#player').currentTime;
+    return time > 5 && time < 7.5;
+  });
   const scrollBeforeMark = await page.locator('#transcript').evaluate(node => node.scrollTop);
   await page.locator('#player').evaluate(video => { video.currentTime = 10.5; });
   await page.locator('#mark-start').click();
   assert.equal(await page.locator('#start').inputValue(), '10.500');
   assert.equal(await page.locator('#end').inputValue(), '12.000');
+  const startMarked = await selectionEdges();
+  assert.ok(Math.abs(startMarked.left - 10.5 / 12) < 0.03, `设起点后左缘 ${startMarked.left}`);
+  assert.ok(Math.abs(startMarked.right - 1) < 0.03, `设起点后右缘 ${startMarked.right}`);
   assert.ok(Math.abs(await page.locator('#player').evaluate(video => video.currentTime) - 10.5) < 0.05);
   assert.equal(await page.locator('#transcript').evaluate(node => node.scrollTop), scrollBeforeMark);
   await page.locator('#player').evaluate(video => { video.currentTime = 11.5; });
   await page.locator('#mark-end').click();
   assert.equal(await page.locator('#start').inputValue(), '10.500');
   assert.equal(await page.locator('#end').inputValue(), '11.500');
+  const endMarked = await selectionEdges();
+  assert.ok(Math.abs(endMarked.left - 10.5 / 12) < 0.03, `设终点后左缘 ${endMarked.left}`);
+  assert.ok(Math.abs(endMarked.right - 11.5 / 12) < 0.03, `设终点后右缘 ${endMarked.right}`);
   await page.locator('#player').evaluate(video => { video.currentTime = 10; });
   await page.locator('#mark-end').click();
   assert.match(await page.locator('#status').textContent(), /当前位置需晚于起点/);
@@ -209,10 +241,14 @@ try {
   await page.keyboard.press('i');
   assert.equal(await page.locator('#start').inputValue(), '10.500');
   assert.equal(await page.locator('#end').inputValue(), '12.000');
+  const keyedStart = await selectionEdges();
+  assert.ok(Math.abs(keyedStart.left - 10.5 / 12) < 0.03, `I 后左缘 ${keyedStart.left}`);
   await page.locator('#player').evaluate(video => { video.currentTime = 11.5; });
   await page.keyboard.press('o');
   assert.equal(await page.locator('#start').inputValue(), '10.500');
   assert.equal(await page.locator('#end').inputValue(), '11.500');
+  const keyedEnd = await selectionEdges();
+  assert.ok(Math.abs(keyedEnd.right - 11.5 / 12) < 0.03, `O 后右缘 ${keyedEnd.right}`);
   await page.locator('#start').focus();
   await page.keyboard.press('i');
   assert.equal(await page.locator('#start').inputValue(), '10.500');
@@ -349,6 +385,7 @@ try {
   // 验证上下键导航选择转写行与 Escape 取消选择
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('.row.selected').count(), 0);
+  assert.equal(await page.locator('#timeline .selection-range').evaluate(node => node.hidden), true);
   await page.keyboard.press('ArrowDown');
   assert.equal(await page.locator('.row.selected').count(), 1);
   assert(await page.locator('.row').first().evaluate(node => node.classList.contains('selected')));
@@ -360,6 +397,9 @@ try {
   step = '截断字幕复核';
   await page.locator('#start').fill('10.500');
   await page.locator('#end').fill('11.500');
+  const typedRange = await selectionEdges();
+  assert.ok(Math.abs(typedRange.left - 10.5 / 12) < 0.03, `手改起点后左缘 ${typedRange.left}`);
+  assert.ok(Math.abs(typedRange.right - 11.5 / 12) < 0.03, `手改终点后右缘 ${typedRange.right}`);
   await page.getByRole('button', { name: '剪掉区间' }).click();
   await page.locator('#review').waitFor();
   assert.equal(await page.locator('#review-text').textContent(), '1 句被切点截断，已从成片字幕略去。');
