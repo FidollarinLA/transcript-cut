@@ -7,6 +7,7 @@ import {
   isEditDirty,
   leavePromptNeeded,
   replaceCancelledNotice,
+  unsavedHintText,
   restoreNoticeClearsDirty,
   saveNoticeClearsDirty,
   transcriptReplacePrompt,
@@ -22,6 +23,10 @@ test('已保存的剪辑和撤销回原样都不算未保存', () => {
   assert.equal(isEditDirty([{ ...spans[0], text: '改过' }], savedHistory, saved), true);
   assert.equal(leavePromptNeeded(false), false);
   assert.equal(leavePromptNeeded(true), true);
+  assert.equal(unsavedHintText(true), '未保存');
+  assert.equal(unsavedHintText(false), '');
+  assert.equal(unsavedHintText(isEditDirty(spans, { operations: [{ kind: 'cut' }], cursor: 0 }, saved)), '未保存');
+  assert.equal(unsavedHintText(isEditDirty(spans, savedHistory, saved)), '');
 });
 
 test('只有成功的保存和同源恢复会清掉脏状态', () => {

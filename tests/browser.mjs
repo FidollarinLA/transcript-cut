@@ -344,12 +344,16 @@ try {
   const srt = await (await page.request.get(address + await srtLink.getAttribute('href'))).text();
   assert.match(srt, /00:00:08,000 --> 00:00:10,000\n最后一句字幕已更正/);
   assert.doesNotMatch(srt, /呃/);
+  assert.equal(await page.locator('#unsaved-hint').isHidden(), false);
+  assert.equal(await page.locator('#unsaved-hint').textContent(), '未保存');
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: '保存项目' }).click();
   const projectPath = await (await download).path();
   const saved = JSON.parse(await readFile(projectPath, 'utf8'));
   assert.equal(saved.history.cursor, 2);
   assert.match(saved.source.sha256, /^[a-f0-9]{64}$/);
+  await page.getByRole('status').filter({ hasText: '项目文件已生成' }).waitFor();
+  assert.equal(await page.locator('#unsaved-hint').isHidden(), true);
 
   step = '错源拒绝与同源恢复';
   await page.reload();
@@ -370,6 +374,7 @@ try {
     buffer: Buffer.from(JSON.stringify(saved)),
   });
   await page.getByRole('status').filter({ hasText: '转写稿、剪点和撤销记录已恢复' }).waitFor();
+  assert.equal(await page.locator('#unsaved-hint').isHidden(), true);
   assert.match(await page.locator('#status').textContent(), /源视频校验通过/);
   assert.match(await page.locator('#status').textContent(), /可撤销 2 步/);
   assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
@@ -565,10 +570,34 @@ try {
   await page.getByRole('button', { name: '打开样例' }).click();
   await page.locator('.row').first().waitFor();
   assert.equal(await leaveWouldPrompt(), false);
+  assert.equal(await page.locator('#unsaved-hint').isHidden(), true);
   await page.locator('.row').nth(1).click();
   await page.getByRole('button', { name: '剪掉区间' }).click();
   await page.locator('.row.removed').waitFor();
   assert.equal(await leaveWouldPrompt(), true);
+  assert.equal(await page.locator('#unsaved-hint').isHidden(), false);
+  assert.equal(await page.locator('#unsaved-hint').textContent(), '未保存');
+  assert.equal(await page.locator('[role="status"]').count(), 1);
+  const hintReadable = () => page.locator('#unsaved-hint').evaluate(node => {
+    const parse = value => value.match(/\d+/g).slice(0, 3).map(Number);
+    const dist = (a, b) => Math.hypot(...a.map((channel, index) => channel - b[index]));
+    const ink = parse(getComputedStyle(node).color);
+    const chip = parse(getComputedStyle(node).backgroundColor);
+    const pageBg = parse(getComputedStyle(document.body).backgroundColor);
+    return { inkVsChip: dist(ink, chip), chipVsPage: dist(chip, pageBg) };
+  });
+  const themeBeforeHint = await page.evaluate(() => document.documentElement.dataset.theme);
+  for (const theme of ['light', 'dark']) {
+    if (await page.evaluate(() => document.documentElement.dataset.theme) !== theme) {
+      await page.getByRole('button', { name: '主题', exact: true }).click();
+    }
+    const tone = await hintReadable();
+    assert.ok(tone.inkVsChip > 40, `${theme} 提示对比 ${tone.inkVsChip}`);
+    assert.ok(tone.chipVsPage > 12, `${theme} 提示与页面 ${tone.chipVsPage}`);
+  }
+  if (await page.evaluate(() => document.documentElement.dataset.theme) !== themeBeforeHint) {
+    await page.getByRole('button', { name: '主题', exact: true }).click();
+  }
   const keptDuration = await page.locator('#output-duration').textContent();
   const keptName = await page.locator('#filename').textContent();
   const keptRow = await page.locator('.row').nth(1).textContent();
@@ -580,6 +609,7 @@ try {
   assert.equal(sampleDialogs.length, 1);
   assert.equal(sampleDialogs[0].type, 'confirm');
   assert.equal(sampleDialogs[0].message, '当前编辑尚未保存，继续会清空这些编辑，要继续吗？');
+  assert.equal(await page.locator('#unsaved-hint').isHidden(), false);
   assert.equal(await page.locator('#output-duration').textContent(), keptDuration);
   assert.equal(await page.locator('#filename').textContent(), keptName);
   assert.equal(await page.locator('.row.removed').count(), 1);
@@ -631,12 +661,15 @@ try {
   await guardDownload;
   await page.getByRole('status').filter({ hasText: '项目文件已生成' }).waitFor();
   assert.equal(await leaveWouldPrompt(), false);
+  assert.equal(await page.locator('#unsaved-hint').isHidden(), true);
   await page.getByRole('button', { name: '撤销' }).click();
   assert.equal(await page.locator('.row.removed').count(), 0);
   assert.equal(await leaveWouldPrompt(), true);
+  assert.equal(await page.locator('#unsaved-hint').isHidden(), false);
   await page.getByRole('button', { name: '重做' }).click();
   await page.locator('.row.removed').waitFor();
   assert.equal(await leaveWouldPrompt(), false);
+  assert.equal(await page.locator('#unsaved-hint').isHidden(), true);
   const cleanLeave = await captureDialogs('accept', () => page.reload());
   assert.equal(cleanLeave.length, 0);
 
@@ -654,6 +687,7 @@ try {
   assert.equal(await page.locator('#status').evaluate(node => node.classList.contains('error')), true);
   assert.equal(await page.locator('.row.removed').count(), 1);
   assert.equal(await leaveWouldPrompt(), true);
+  assert.equal(await page.locator('#unsaved-hint').isHidden(), false);
   assert.equal(errors.length, errorsBeforeSave);
   await captureDialogs('accept', () => page.reload());
 
@@ -936,6 +970,8 @@ try {
   await page.getByRole('button', { name: '剪掉区间' }).click();
   assert.equal(await page.locator('#output-duration').textContent(), '00:10.000');
   assert.equal(await leaveWouldPrompt(), true);
+  assert.equal(await page.locator('#unsaved-hint').isHidden(), false);
+  assert.equal(await fitsViewport(), true);
   await page.getByRole('button', { name: '撤销' }).click();
   assert.equal(await page.locator('#output-duration').textContent(), '00:12.000');
   assert.equal(await leaveWouldPrompt(), true);

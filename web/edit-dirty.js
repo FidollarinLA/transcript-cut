@@ -24,3 +24,7 @@ export function saveNoticeClearsDirty(text, isError = false) {
 export function leavePromptNeeded(dirty) {
   return dirty === true;
 }
+
+export function unsavedHintText(dirty) {
+  return dirty === true ? '未保存' : '';
+}
