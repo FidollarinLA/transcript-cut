@@ -200,9 +200,23 @@ function requestEdit(action, operation, spans, history) {
 function acceptEdit(result) {
   Object.assign(state, result);
   state.revision++;
-  if (!el('downloads').hidden) el('export-version').textContent = '上一版成片';
+  markDownloadsStale();
   render();
   paintUnsavedHint();
+}
+
+function markDownloadsStale() {
+  const downloads = el('downloads');
+  if (!downloads || downloads.hidden) return;
+  const label = el('export-version');
+  if (label && !label.textContent.startsWith('上一版成片')) {
+    label.textContent = label.textContent.replace(/^成片/, '上一版成片');
+  }
+  downloads.querySelectorAll('a').forEach(link => link.remove());
+  if (el('export-stale')) return;
+  const note = element('span', 'export-stale', '已变更，请重新导出');
+  note.id = 'export-stale';
+  downloads.append(note);
 }
 
 function recalculate(action = 'plan', operation = null) {
