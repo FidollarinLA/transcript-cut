@@ -374,6 +374,7 @@ function selectSpan(span, extend) {
   el('preview').checked = false;
   player.currentTime = start / unit;
   showSelection(start, end);
+  rows.get(span.id)?.button?.scrollIntoView({ block: 'nearest' });
 }
 
 function showSelection(start, end) {
