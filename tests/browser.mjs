@@ -409,8 +409,28 @@ try {
   await page.locator('#review').waitFor();
   assert.equal(await page.locator('#review-text').textContent(), '1 句被切点截断，已从成片字幕略去。');
   assert.equal(await page.locator('#output-duration').textContent(), '00:09.000');
+  await page.locator('#transcript').evaluate(node => {
+    const first = node.querySelector('.row');
+    node.style.minHeight = '0px';
+    node.style.maxHeight = `${Math.ceil(first.getBoundingClientRect().height)}px`;
+    node.scrollTop = 0;
+  });
+  const clippedSeen = () => page.evaluate(() => {
+    const box = document.querySelector('#transcript').getBoundingClientRect();
+    const row = [...document.querySelectorAll('#transcript .row')].find(node => node.textContent.includes('剪好后'));
+    if (!row) return false;
+    const rect = row.getBoundingClientRect();
+    return Math.min(box.bottom, rect.bottom) - Math.max(box.top, rect.top) > 1;
+  });
+  assert.equal(await clippedSeen(), false);
   await page.getByRole('button', { name: '定位 00:10.000' }).click();
   await page.waitForFunction(() => document.querySelector('#player').currentTime >= 10);
+  assert.equal(await clippedSeen(), true);
+  assert.equal(await page.locator('.row.selected').filter({ hasText: '剪好后' }).count(), 1);
+  await page.locator('#transcript').evaluate(node => {
+    node.style.maxHeight = '';
+    node.style.minHeight = '';
+  });
   assert.match(await page.locator('#status').textContent(), /1 句被切点截断/);
   assert.doesNotMatch(await page.locator('#status').textContent(), /已剪掉|已撤销|已重做|文字已修正/);
   await page.getByRole('button', { name: '导出成片', exact: true }).click();
