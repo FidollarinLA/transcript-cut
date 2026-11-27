@@ -354,6 +354,22 @@ try {
   assert.match(saved.source.sha256, /^[a-f0-9]{64}$/);
   await page.getByRole('status').filter({ hasText: '项目文件已生成' }).waitFor();
   assert.equal(await page.locator('#unsaved-hint').isHidden(), true);
+  assert.equal(await page.locator('#downloads').isHidden(), false);
+  assert.match(await page.locator('#export-version').textContent(), /^成片/);
+  assert.equal(await page.getByRole('link', { name: '下载 MP4' }).count(), 1);
+  assert.equal(await page.getByRole('link', { name: '下载 SRT' }).count(), 1);
+  await page.getByRole('button', { name: '撤销' }).click();
+  assert.match(await page.locator('#export-version').textContent(), /上一版成片/);
+  assert.equal(await page.locator('#export-stale').textContent(), '已变更，请重新导出');
+  assert.equal(await page.getByRole('link', { name: '下载 MP4' }).count(), 0);
+  assert.equal(await page.getByRole('link', { name: '下载 SRT' }).count(), 0);
+  await page.getByRole('button', { name: '导出成片', exact: true }).click();
+  await page.getByRole('status').filter({ hasText: '导出完成' }).waitFor();
+  assert.match(await page.locator('#export-version').textContent(), /^成片/);
+  await page.getByRole('link', { name: '下载 SRT' }).waitFor();
+  assert.equal(await page.locator('#export-stale').count(), 0);
+  await page.getByRole('button', { name: '重做' }).click();
+  assert.equal(await leaveWouldPrompt(), false);
 
   step = '错源拒绝与同源恢复';
   await page.reload();
